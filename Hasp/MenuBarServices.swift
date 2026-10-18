@@ -1,0 +1,33 @@
+import Foundation
+
+/// A scan returns the entire list. Intermediate results stay off the UI.
+struct MenuBarServices {
+    var snapshot: () async -> [MenuBarIcon]
+    var transition: (Bool, @escaping () -> Void) -> Void
+    var isTrusted: () -> Bool
+    var requestAccess: () -> Void
+    var waitsForLayout = false
+    var refreshesAfterTransition = true
+
+    static var live: Self {
+        Self(snapshot: {
+            await Task.detached {
+                let live = MenuBarCensus.thirdPartyIcons()
+                let apps = ProcessInfo.processInfo.operatingSystemVersion.majorVersion == 27 ? ModernMenuBarFold.shared.completeIcons(live) : live
+                let system = MenuBarPrefs.shownSystemIcons()
+                return apps + system
+            }.value
+        }, transition: { hidden, completion in
+            if ProcessInfo.processInfo.operatingSystemVersion.majorVersion == 27 {
+                // The modern batch owns all three participants, including
+                // module restoration and handoffs. No duplicate later write.
+                completion()
+            } else {
+                MenuBarPrefs.transition(hidden: hidden) { _ in completion() }
+            }
+        }, isTrusted: { MenuBarCensus.isTrusted }, requestAccess: {
+            MenuBarCensus.promptForAccess()
+        }, waitsForLayout: ProcessInfo.processInfo.operatingSystemVersion.majorVersion == 27,
+           refreshesAfterTransition: ProcessInfo.processInfo.operatingSystemVersion.majorVersion != 27)
+    }
+}
