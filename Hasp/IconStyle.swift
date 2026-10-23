@@ -84,6 +84,7 @@ struct PanelIcon: View {
     let symbol: String
     var image: NSImage? = nil
     var symbolPointSize: CGFloat = 15
+    var symbolWeight: Font.Weight = .regular
 
     var body: some View {
         Group {
@@ -95,7 +96,7 @@ struct PanelIcon: View {
                     .frame(width: 24, height: 24)
             } else {
                 Image(systemName: symbol)
-                    .font(.system(size: symbolPointSize, weight: .regular))
+                    .font(.system(size: symbolPointSize, weight: symbolWeight))
                     .symbolRenderingMode(.monochrome)
                     .foregroundStyle(.primary)
                     .frame(width: PanelLayout.iconSize, height: PanelLayout.iconSize)

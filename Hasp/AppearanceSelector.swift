@@ -14,6 +14,10 @@ struct AppearanceSelector: NSViewRepresentable {
         control.segmentStyle = .rounded
         control.controlSize = .small
         control.font = .systemFont(ofSize: 12)
+        control.focusRingType = .none
+        // Keep the selected segment on the system gray, even when the popover is key.
+        // Accent blue is reserved for switches.
+        control.selectedSegmentBezelColor = .unemphasizedSelectedContentBackgroundColor
         control.setAccessibilityLabel("外观模式")
         return control
     }

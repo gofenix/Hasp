@@ -106,8 +106,6 @@ struct SoundOutputRow: View {
                 .frame(width: PanelLayout.accessoryWidth)
         } else if item.bluetoothAddress != nil && !item.connected {
             actionChip("连接")
-        } else {
-            actionChip("使用")
         }
     }
 
@@ -117,7 +115,9 @@ struct SoundOutputRow: View {
             .foregroundStyle(.primary)
             .padding(.horizontal, 8)
             .padding(.vertical, 2)
-            .background(Color.primary.opacity(0.08), in: Capsule())
+            .overlay {
+                Capsule().strokeBorder(Color.primary.opacity(0.28), lineWidth: 1)
+            }
             .padding(.trailing, 2)
     }
 

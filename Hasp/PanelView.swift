@@ -163,7 +163,7 @@ struct PanelView: View {
     private var menuBarSection: some View {
         VStack(spacing: 0) {
             PanelRow(height: PanelLayout.deviceRowHeight) {
-                PanelIcon(symbol: "menubar.rectangle", symbolPointSize: 20)
+                PanelIcon(symbol: "menubar.arrow.up.rectangle", symbolPointSize: 17, symbolWeight: .medium)
                 Text("折叠状态栏")
                 Spacer(minLength: 4)
                 if model.menuState.recoveryPending {
