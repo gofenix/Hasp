@@ -18,13 +18,6 @@ struct PermissionSettingsView: View {
         VStack(spacing: 0) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("权限与访问")
-                            .font(.system(size: 20, weight: .semibold))
-                            .accessibilityAddTraits(.isHeader)
-                        Text("管理 Hasp 使用的系统权限，按需开启。")
-                            .font(.system(size: 12)).foregroundStyle(.secondary)
-                    }
                     VStack(spacing: 0) {
                         ForEach(Array(HaspPermission.usedPermissions.enumerated()), id: \.element.id) { index, permission in
                             if index > 0 { Divider().padding(.leading, 48) }

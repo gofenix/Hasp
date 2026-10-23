@@ -360,22 +360,39 @@ struct SettingsView: View {
                             Text("18:00 至次日 06:00").tag(ScheduleMode.fixed)
                             Text("自定义时段").tag(ScheduleMode.custom)
                         }
-                        DatePicker("深色开始", selection: startDate, displayedComponents: .hourAndMinute)
-                        DatePicker("深色结束", selection: endDate, displayedComponents: .hourAndMinute)
-                        Text(model.customStart == model.customEnd ? "开始与结束相同：不启用深色" : "自定义深色时段：" + Solar.formatRange(start: model.customStart, end: model.customEnd))
-                            .font(.caption).foregroundStyle(.secondary)
+                        if model.scheduleMode == .custom {
+                            DatePicker("深色开始", selection: startDate, displayedComponents: .hourAndMinute)
+                            DatePicker("深色结束", selection: endDate, displayedComponents: .hourAndMinute)
+                            if model.customStart == model.customEnd {
+                                Text("开始与结束相同：不启用深色")
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
+                        } else {
+                            Text(scheduleSummary)
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
                     }
                     Section("通用") {
                         Toggle("登录时打开", isOn: Binding(
                             get: { model.launchAtLogin },
                             set: { model.setLaunchAtLogin($0) }
                         ))
-                        Button("权限与访问…") { model.openPermissions() }
+                    }
+                    Section {
                         Button("退出 Hasp") { NSApp.terminate(nil) }
                     }
                 }
                 .formStyle(.grouped)
             }
+        }
+    }
+
+    private var scheduleSummary: String {
+        switch model.scheduleMode {
+        case .off: return "自动切换已关闭"
+        case .solar: return "日落到次日日出为深色"
+        case .fixed: return "18:00 至次日 06:00 为深色"
+        case .custom: return ""
         }
     }
 
