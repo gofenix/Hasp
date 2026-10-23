@@ -31,8 +31,8 @@ struct PanelView: View {
             .frame(width: PanelLayout.contentWidth + 12)
             .frame(height: min(ceil(contentHeight), scrollLimit))
             .padding(.horizontal, -6)
-            .scrollIndicators(.automatic)
-            .contentMargins(.trailing, 12, for: .scrollIndicators)
+            // Overlay scrollers sit on the segmented control, checkmark and switches.
+            .scrollIndicators(.never)
             .scrollDisabled(contentHeight <= scrollLimit)
             .layoutPriority(1)
             Divider()
