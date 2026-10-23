@@ -6,6 +6,7 @@ struct PanelView: View {
     private let initiallyExpanded: Bool
     @State private var otherDevicesExpanded: Bool
     @State private var contentHeight: CGFloat = 500
+    @State private var headerHeight: CGFloat = 28
 
     init(maximumHeight: CGFloat = 720, initiallyExpanded: Bool = false) {
         self.maximumHeight = maximumHeight
@@ -13,10 +14,12 @@ struct PanelView: View {
         _otherDevicesExpanded = State(initialValue: initiallyExpanded)
     }
 
-    private var scrollLimit: CGFloat { max(0, maximumHeight - PanelLayout.footerChrome) }
+    private var scrollLimit: CGFloat { max(0, maximumHeight - PanelLayout.footerChrome - headerHeight - PanelLayout.gap) }
 
     var body: some View {
         VStack(spacing: PanelLayout.gap) {
+            PanelHeader(state: model.screenLockState) { model.lockScreen() }
+                .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { headerHeight = $0 }
             ScrollView {
                 panelContent
                     .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { contentHeight = $0 }

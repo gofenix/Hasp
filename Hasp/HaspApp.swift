@@ -398,6 +398,14 @@ enum SettingsWindow {
 enum HaspMain {
     static func main() {
         let app = NSApplication.shared
+        if CommandLine.arguments.contains("--diagnose-lock-screen") {
+            app.setActivationPolicy(.accessory)
+            let report: [String: Any] = ["available": NativeScreenLock.shared.available,
+                                       "backend": "login.framework/SACLockScreenImmediate",
+                                       "lockInvoked": false, "systemVersion": ProcessInfo.processInfo.operatingSystemVersionString]
+            print(String(data: try! JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys]), encoding: .utf8)!)
+            return
+        }
         if CommandLine.arguments.contains("--probe-system-menu-icons") {
             app.setActivationPolicy(.accessory)
             Task { @MainActor in

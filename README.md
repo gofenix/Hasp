@@ -2,6 +2,10 @@
 
 Swift/AppKit/SwiftUI macOS menu-bar app. Requires macOS 26 and Xcode 26.
 
+The fixed top toolbar includes a one-click Lock Screen button. It closes the
+panel before requesting the system lock; the appearance selector keeps its full
+width. See [lock-screen implementation and validation](docs/lock-screen.md).
+
 ## Build
 
 ```sh

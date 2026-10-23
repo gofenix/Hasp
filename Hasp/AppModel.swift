@@ -166,6 +166,8 @@ final class AppModel: ObservableObject {
     let deviceState = DeviceState()
     let menuState = MenuBarState()
     let settingsState = SettingsState()
+    let screenLockState = ScreenLockState()
+    var screenLockAction: () throws -> Void = { try NativeScreenLock.shared.lock() }
     let permissions = PermissionCenter()
     var isDark: Bool {
         get { appearanceState.isDark }
@@ -971,6 +973,24 @@ final class AppModel: ObservableObject {
         }
         deviceCommands[address]?.submit(on)
         SwitchTrace.applied("bluetooth-intent")
+    }
+
+    func lockScreen() {
+        guard !screenLockState.pending else { return }
+        screenLockState.pending = true
+        screenLockState.message = nil
+        var performed = false
+        let action = { [weak self] in
+            guard let self, !performed else { return }
+            performed = true
+            defer { self.screenLockState.pending = false }
+            do { try self.screenLockAction() }
+            catch {
+                self.screenLockState.message = "锁屏失败：\(error.localizedDescription)"
+                self.presentPanel?()
+            }
+        }
+        if let dismissPanel { dismissPanel(action) } else { action() }
     }
 
     func openSettings() {
