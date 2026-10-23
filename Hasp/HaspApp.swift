@@ -219,7 +219,7 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
         guard let button = statusItem.button else { return }
         if !popover.isShown {
             let screenHeight = button.window?.screen?.visibleFrame.height ?? 792
-            updatePanelLimit?(min(900, screenHeight - 72))
+            updatePanelLimit?(min(640, screenHeight - 72))
             updateAppearance(dark: model.isDark)
             popover.animates = false
             let start = DispatchTime.now().uptimeNanoseconds

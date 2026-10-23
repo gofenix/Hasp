@@ -88,7 +88,7 @@ private actor HeadphoneHardware {
         let idB = "bluetooth:" + AudioOutputInventory.addressKey(secondAddress)
         func row(_ id: String) -> OutputItem { model.outputs.first { $0.id == id }! }
         let initialOrder = model.outputs.map(\.id)
-        precondition(row(idA).subtitle == "未连接" && row(idA).actionTitle == "连接并使用")
+        precondition(row(idA).subtitle == "未连接" && row(idA).actionTitle == "连接")
         precondition(model.inputs.contains { $0.name == "Unclassified" }, "Don't discard unknown paired devices")
         precondition(model.outputs.count == 3, "Both disconnected headphones must remain visible")
 

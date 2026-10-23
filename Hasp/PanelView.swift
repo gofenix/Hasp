@@ -5,6 +5,7 @@ struct PanelView: View {
     var maximumHeight: CGFloat
     private let initiallyExpanded: Bool
     @State private var otherDevicesExpanded: Bool
+    @State private var foldedAppsExpanded: Bool
     @State private var contentHeight: CGFloat = 500
     @State private var headerHeight: CGFloat = 28
 
@@ -12,6 +13,7 @@ struct PanelView: View {
         self.maximumHeight = maximumHeight
         self.initiallyExpanded = initiallyExpanded
         _otherDevicesExpanded = State(initialValue: initiallyExpanded)
+        _foldedAppsExpanded = State(initialValue: initiallyExpanded)
     }
 
     private var scrollLimit: CGFloat { max(0, maximumHeight - PanelLayout.footerChrome - headerHeight - PanelLayout.gap) }
@@ -24,14 +26,18 @@ struct PanelView: View {
                 panelContent
                     .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { contentHeight = $0 }
                     .padding(.horizontal, 6)
+                    .padding(.bottom, 6)
             }
             .frame(width: PanelLayout.contentWidth + 12)
-            .frame(height: min(contentHeight, scrollLimit))
+            .frame(height: min(ceil(contentHeight), scrollLimit))
             .padding(.horizontal, -6)
-            .scrollIndicators(.never)
+            .scrollIndicators(.automatic)
+            .contentMargins(.trailing, 12, for: .scrollIndicators)
             .scrollDisabled(contentHeight <= scrollLimit)
+            .layoutPriority(1)
             Divider()
             footer
+                .layoutPriority(2)
         }
         .frame(width: PanelLayout.contentWidth)
         .padding(.horizontal, PanelLayout.inset)
@@ -157,7 +163,7 @@ struct PanelView: View {
     private var menuBarSection: some View {
         VStack(spacing: 0) {
             PanelRow(height: PanelLayout.deviceRowHeight) {
-                PanelIcon(symbol: "menubar.rectangle")
+                PanelIcon(symbol: "menubar.rectangle", symbolPointSize: 20)
                 Text("折叠状态栏")
                 Spacer(minLength: 4)
                 if model.menuState.recoveryPending {
@@ -228,41 +234,14 @@ struct PanelView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.leading, PanelLayout.textInset)
                         .padding(.vertical, 6)
-                        // Reserve the same viewport as the complete list on a
-                        // cold scan; avoid resizing the popover mid-presentation.
-                        .frame(height: 320, alignment: .topLeading)
                 } else {
-                    Group {
+                    PanelSectionTitle(title: "已收起的图标")
+                        .padding(.top, 8)
+                    foldedIconStrip
+                    PanelDisclosure(title: "全部 · \(model.menuBarIcons.count)", expanded: $foldedAppsExpanded) {
                         VStack(spacing: 0) {
                             ForEach(model.menuBarIcons) { icon in
-                                Button {
-                                    model.openMenuBarItem(icon)
-                                } label: {
-                                    PanelRow {
-                                        PanelIcon(symbol: icon.symbol, image: icon.image)
-                                        VStack(alignment: .leading, spacing: 2) {
-                                            Text(icon.name).lineLimit(1)
-                                            if let status = icon.status {
-                                                Text(status).font(PanelLayout.secondaryFont).foregroundStyle(.secondary).lineLimit(1)
-                                            }
-                                        }
-                                        Spacer(minLength: 0)
-                                        Image(systemName: "chevron.right")
-                                            .font(PanelLayout.secondaryFont).foregroundStyle(.secondary)
-                                            .frame(width: PanelLayout.accessoryWidth)
-                                    }
-                                }
-                                .buttonStyle(PanelActionStyle())
-                                .disabled(model.menuBarOpening)
-                                .accessibilityLabel(icon.name)
-                                .accessibilityValue(icon.status ?? "")
-                                .accessibilityHint("打开原状态栏菜单")
-                                .help(icon.status.map { "\(icon.name)：\($0)" } ?? "打开\(icon.name)原菜单")
-                                .contextMenu {
-                                    if icon.target != nil && !icon.id.hasPrefix("system.") {
-                                        Button("打开应用主窗口") { model.openMenuBarApplication(icon) }
-                                    }
-                                }
+                                menuBarNameRow(icon)
                             }
                         }
                     }
@@ -276,22 +255,57 @@ struct PanelView: View {
         }
     }
 
-    private var footer: some View {
-        PanelRow(height: PanelLayout.footerHeight) {
-            Button { model.openSettings() } label: {
-                PanelRow(height: PanelLayout.footerHeight) {
-                    PanelIcon(symbol: "gearshape")
-                    Text("设置…")
-                    Spacer(minLength: 0)
+    private var foldedIconStrip: some View {
+        let columns = Array(repeating: GridItem(.fixed(32), spacing: 4), count: 8)
+        return LazyVGrid(columns: columns, alignment: .leading, spacing: 4) {
+            ForEach(Array(model.menuBarIcons.prefix(8))) { icon in
+                Button { model.openMenuBarItem(icon) } label: {
+                    PanelIcon(symbol: icon.symbol, image: icon.image)
                 }
+                .buttonStyle(.plain)
+                .disabled(model.menuBarOpening)
+                .accessibilityLabel(icon.name)
+                .accessibilityHint("打开原状态栏菜单")
+                .help(icon.status.map { "\(icon.name)：\($0)" } ?? "打开\(icon.name)原菜单")
             }
-            .buttonStyle(PanelActionStyle())
-            PanelMoreMenu {
-                Button("权限与访问…") { model.openPermissions() }
-                Button("退出 Hasp") { NSApp.terminate(nil) }
-            }
-            .accessibilityLabel("更多操作")
         }
+        .padding(.bottom, 2)
+    }
+
+    private func menuBarNameRow(_ icon: MenuBarIcon) -> some View {
+        Button { model.openMenuBarItem(icon) } label: {
+            PanelRow(height: PanelLayout.deviceRowHeight) {
+                PanelIcon(symbol: icon.symbol, image: icon.image)
+                Text(icon.name).lineLimit(1)
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right")
+                    .font(PanelLayout.secondaryFont).foregroundStyle(.secondary)
+                    .frame(width: PanelLayout.accessoryWidth)
+            }
+        }
+        .buttonStyle(PanelActionStyle())
+        .disabled(model.menuBarOpening)
+        .accessibilityLabel(icon.name)
+        .accessibilityValue(icon.status ?? "")
+        .accessibilityHint("打开原状态栏菜单")
+        .help(icon.status.map { "\(icon.name)：\($0)" } ?? "打开\(icon.name)原菜单")
+        .contextMenu {
+            if icon.target != nil && !icon.id.hasPrefix("system.") {
+                Button("打开应用主窗口") { model.openMenuBarApplication(icon) }
+            }
+        }
+    }
+
+    private var footer: some View {
+        Button { model.openSettings() } label: {
+            PanelRow(height: PanelLayout.footerHeight) {
+                PanelIcon(symbol: "gearshape")
+                Text("设置")
+                Spacer(minLength: 0)
+            }
+        }
+        .buttonStyle(PanelActionStyle())
+        .accessibilityLabel("设置")
     }
 }
 
@@ -356,6 +370,8 @@ struct SettingsView: View {
                             get: { model.launchAtLogin },
                             set: { model.setLaunchAtLogin($0) }
                         ))
+                        Button("权限与访问…") { model.openPermissions() }
+                        Button("退出 Hasp") { NSApp.terminate(nil) }
                     }
                 }
                 .formStyle(.grouped)

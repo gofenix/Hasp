@@ -116,8 +116,10 @@ struct OutputItem: Identifiable, Equatable {
     }
 
     var actionTitle: String {
-        if bluetoothAddress != nil && !connected { return "连接并使用" }
-        return failure == nil ? "使用" : "重试"
+        if isCurrent { return "当前输出" }
+        if bluetoothAddress != nil && !connected { return "连接" }
+        if failure != nil || failed { return "重试" }
+        return "使用"
     }
 
     var kindRank: Int {

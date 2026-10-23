@@ -83,7 +83,7 @@ struct PanelMoreMenu<Content: View>: View {
 struct PanelIcon: View {
     let symbol: String
     var image: NSImage? = nil
-    var selected = false
+    var symbolPointSize: CGFloat = 15
 
     var body: some View {
         Group {
@@ -95,16 +95,13 @@ struct PanelIcon: View {
                     .frame(width: 24, height: 24)
             } else {
                 Image(systemName: symbol)
-                    .font(.system(size: 15, weight: selected ? .medium : .regular))
+                    .font(.system(size: symbolPointSize, weight: .regular))
                     .symbolRenderingMode(.monochrome)
-                    .foregroundStyle(selected ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
+                    .foregroundStyle(.primary)
                     .frame(width: PanelLayout.iconSize, height: PanelLayout.iconSize)
             }
         }
         .frame(width: PanelLayout.iconSize, height: PanelLayout.iconSize)
-        .background {
-            if selected { Circle().fill(.blue).frame(width: 28, height: 28) }
-        }
         .accessibilityHidden(true)
     }
 }

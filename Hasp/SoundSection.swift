@@ -92,27 +92,47 @@ struct SoundOutputRow: View {
         return item.kind.label
     }
 
+    @ViewBuilder private var trailing: some View {
+        if item.pending {
+            ProgressView().controlSize(.small)
+        } else if item.failure == .disconnection {
+            actionChip("重试断开")
+        } else if item.failure != nil || item.failed {
+            actionChip("重试")
+        } else if item.isCurrent {
+            Image(systemName: "checkmark")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.primary)
+                .frame(width: PanelLayout.accessoryWidth)
+        } else if item.bluetoothAddress != nil && !item.connected {
+            actionChip("连接")
+        } else {
+            actionChip("使用")
+        }
+    }
+
+    private func actionChip(_ title: String) -> some View {
+        Text(title)
+            .font(.system(size: 11, weight: .medium))
+            .foregroundStyle(.primary)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 2)
+            .background(Color.primary.opacity(0.08), in: Capsule())
+            .padding(.trailing, 2)
+    }
+
     var body: some View {
         PanelHoverRow {
             PanelRow {
                 Button(action: onUse) {
                     PanelRow {
-                        PanelIcon(symbol: item.symbolName, selected: item.isCurrent)
+                        PanelIcon(symbol: item.symbolName)
                         VStack(alignment: .leading, spacing: 2) {
                             Text(item.name).fontWeight(item.isCurrent ? .medium : .regular).lineLimit(1)
                             Text(status.isEmpty ? "输出" : status).font(PanelLayout.secondaryFont).foregroundStyle(.secondary).lineLimit(1)
                         }
                         Spacer(minLength: 4)
-                        Group {
-                            if item.pending { ProgressView().controlSize(.small) }
-                            else if item.failure == .disconnection { Text("重试断开").font(PanelLayout.secondaryFont) }
-                            else if item.failure != nil || item.failed { Text("重试").font(PanelLayout.secondaryFont) }
-                            else if item.isInPairedGroup {
-                                Text("连接并使用").font(PanelLayout.secondaryFont).foregroundStyle(.secondary)
-                                    .padding(.trailing, 4)
-                            }
-                        }
-                        .fixedSize()
+                        trailing
                     }
                 }
                 .buttonStyle(.plain)
