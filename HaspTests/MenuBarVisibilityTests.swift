@@ -149,6 +149,40 @@ final class VisibilityFixture: MenuBarVisibilityStorage {
         try MenuBarVisibilityTransaction(storage: shared).fold(owners: ["com.example.a", "com.example.b"], confirm: { true })
         precondition(shared.originals == ["com.example.parent": true])
         try MenuBarVisibilityTransaction(storage: shared).restore()
+        // macOS can retain both parent and helper locations while AX reports
+        // just one. Reproduce all three real-device rows from the failure.
+        var mixedRows: [Any] = []
+        var applications: [String: String] = [:]
+        for (parent, helper) in pairs {
+            mixedRows += [key(parent), ["isAllowed": true, "menuItemLocations": [key(helper), key(parent)], "extra": "keep"]]
+            mixedRows += [key(helper), ["isAllowed": true, "menuItemLocations": [key(helper)]]]
+            applications[parent] = "/Applications/\(parent).app"
+            applications[helper] = applications[parent]
+        }
+        mixedRows += [key("app.hasp.menu"), ["isAllowed": true], key("com.example.unrelated"), ["isAllowed": true]]
+        let mixed = VisibilityFixture(try pack(mixedRows))
+        let mixedEngine = MenuBarVisibilityTransaction(storage: mixed)
+        let onePerApplication: Set<String> = [pairs[0].1, pairs[1].1, pairs[2].0]
+        fails({ _ = try MenuBarVisibilityRecords(data: mixed.data).controllingOwners(for: onePerApplication) }, .sharedOwner)
+        try mixedEngine.fold(owners: onePerApplication, applicationIdentity: { applications[$0] }) {
+            precondition(pairs.allSatisfy { mixed.states[$0.0] == false && mixed.states[$0.1] == false })
+            precondition(mixed.states["app.hasp.menu"] == true && mixed.states["com.example.unrelated"] == true)
+            return true
+        }
+        precondition(mixed.originals.count == 6)
+        try mixedEngine.restore()
+        precondition(mixed.states.values.allSatisfy { $0 } && mixed.originals.isEmpty)
+        let preserved = try PropertyListSerialization.propertyList(from: mixed.data, format: nil) as! [Any]
+        precondition((preserved[1] as! [String: Any])["extra"] as? String == "keep")
+        // A matching prefix does not establish containment. Real cross-app
+        // sharing must still fail without writes, even when aliases resolve.
+        let independent: [String: String] = ["com.example.parent": "/Applications/A.app", "com.example.a": "/Applications/A.app",
+                                            "com.example.b": "/Applications/B.app"]
+        let sharedWrites = shared.writes
+        fails({ try MenuBarVisibilityTransaction(storage: shared).fold(owners: ["com.example.a"], applicationIdentity: { independent[$0] }, confirm: { true }) }, .sharedOwner)
+        precondition(shared.writes == sharedWrites && shared.originals.isEmpty)
+        fails({ try MenuBarVisibilityTransaction(storage: protected).fold(owners: ["com.example.helper"], applicationIdentity: { _ in "/Applications/Launcher.app" }, confirm: { true }) }, .sharedOwner)
+        precondition(protected.writes == 0 && protected.originals.isEmpty)
         let inconsistent = VisibilityFixture(try pack([key("com.example.a"), ["isAllowed": false]]))
         fails({ try MenuBarVisibilityTransaction(storage: inconsistent).fold(owners: ["com.example.a"], confirm: { false }) }, .layout)
         precondition(inconsistent.writes == 0 && inconsistent.originals.isEmpty, "Disabled flags alone cannot prove hiding")

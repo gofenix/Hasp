@@ -45,9 +45,26 @@ struct MenuBarVisibilityRecords {
     /// store its switch under the enclosing application. Resolve the native
     /// relationship instead of inventing an ineffective helper-app switch.
     /// Multiple records can reference the same item; all must be considered.
-    func controllingOwners(for requested: Set<String>) throws -> Set<String> {
-        let items = requested.filter(MenuBarVisibilityTransaction.mayHide)
-        guard !items.isEmpty else { return [] }
+    func controllingOwners(for requested: Set<String>, applicationIdentity: (String) -> String? = { _ in nil }) throws -> Set<String> {
+        let requestedItems = requested.filter(MenuBarVisibilityTransaction.mayHide)
+        guard !requestedItems.isEmpty else { return [] }
+        // AX can report only the helper or only the parent. Native records may
+        // retain both, including a second switch for a helper. Include aliases
+        // only when installed bundle metadata proves they belong to the same
+        // enclosing application; a shared identifier prefix is not evidence.
+        let applications = Set(requestedItems.compactMap(applicationIdentity))
+        var items = requestedItems
+        if !applications.isEmpty {
+            for i in stride(from: 0, to: rows.count, by: 2) {
+                guard let owner = Self.owner(rows[i]), let value = rows[i + 1] as? [String: Any] else { continue }
+                let associated = (value["menuItemLocations"] as? [Any] ?? []).compactMap(Self.owner)
+                for candidate in associated + [owner] where MenuBarVisibilityTransaction.mayHide(candidate) {
+                    if let application = applicationIdentity(candidate), applications.contains(application) {
+                        items.insert(candidate)
+                    }
+                }
+            }
+        }
         var found = Set<String>(), controls = Set<String>()
         for i in stride(from: 0, to: rows.count, by: 2) {
             guard let owner = Self.owner(rows[i]), let value = rows[i + 1] as? [String: Any] else { continue }
@@ -124,11 +141,11 @@ final class MenuBarVisibilityTransaction {
         var desired: [String: Bool] { originals.mapValues { _ in false } }
     }
 
-    func prepare(owners: Set<String>) throws -> PreparedFold {
+    func prepare(owners: Set<String>, applicationIdentity: (String) -> String? = { _ in nil }) throws -> PreparedFold {
         let records = try MenuBarVisibilityRecords(data: storage.read())
         var originals = try storage.journal()
         let states = records.states
-        let controls = try records.controllingOwners(for: owners)
+        let controls = try records.controllingOwners(for: owners, applicationIdentity: applicationIdentity)
         for owner in controls where originals[owner] == nil && states[owner] == true {
             originals[owner] = true
         }
@@ -150,8 +167,8 @@ final class MenuBarVisibilityTransaction {
         guard plan.desired.allSatisfy({ actual[$0.key] == $0.value }) else { throw MenuBarVisibilityError.confirmation }
     }
 
-    func fold(owners: Set<String>, confirm: () -> Bool?) throws {
-        let plan = try prepare(owners: owners)
+    func fold(owners: Set<String>, applicationIdentity: (String) -> String? = { _ in nil }, confirm: () -> Bool?) throws {
+        let plan = try prepare(owners: owners, applicationIdentity: applicationIdentity)
         guard !plan.controls.isEmpty else { return }
         try stage(plan)
         do {

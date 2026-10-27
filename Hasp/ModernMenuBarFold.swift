@@ -2,6 +2,32 @@ import AppKit
 import ApplicationServices
 import OSLog
 
+/// Resolve helper processes through their actual bundle containment, rather
+/// than treating unrelated applications with similar bundle IDs as aliases.
+private final class MenuBarOwnerApplications {
+    private var resolved: [String: String] = [:]
+    private var checked = Set<String>()
+
+    func identity(_ identifier: String) -> String? {
+        guard checked.insert(identifier).inserted else { return resolved[identifier] }
+        let running = NSRunningApplication.runningApplications(withBundleIdentifier: identifier).compactMap(\.bundleURL)
+        let urls = running.isEmpty ? [NSWorkspace.shared.urlForApplication(withBundleIdentifier: identifier)].compactMap { $0 } : running
+        let roots = Set(urls.compactMap { url -> String? in
+            guard Bundle(url: url)?.bundleIdentifier == identifier else { return nil }
+            var ancestor = url.resolvingSymlinksInPath().standardizedFileURL
+            var root: URL?
+            while ancestor.path != "/" {
+                if ancestor.pathExtension == "app", Bundle(url: ancestor)?.bundleIdentifier != nil { root = ancestor }
+                ancestor.deleteLastPathComponent()
+            }
+            return root?.path
+        })
+        guard roots.count == 1, let root = roots.first else { return nil }
+        resolved[identifier] = root
+        return root
+    }
+}
+
 struct MenuBarLayoutFailure: ExpressibleByStringLiteral {
     var message: String
     var stillFolded: Bool = false
@@ -61,7 +87,8 @@ final class ModernMenuBarFold: @unchecked Sendable {
                     cacheLock.unlock()
                     let started = DispatchTime.now().uptimeNanoseconds
                     func elapsed() -> Double { Double(DispatchTime.now().uptimeNanoseconds - started) / 1_000_000 }
-                    let appPlan = try transaction.prepare(owners: Set(owners))
+                    let applications = MenuBarOwnerApplications()
+                    let appPlan = try transaction.prepare(owners: Set(owners), applicationIdentity: applications.identity)
                     let systemPlan = try system.prepare(owners: Set(systemOwners))
                     let modulePlan = try MenuBarPrefs.prepareHide()
                     attempt["prepareMs"] = elapsed()
@@ -130,7 +157,8 @@ final class ModernMenuBarFold: @unchecked Sendable {
             result["transport"] = "explicit-controlcenter-container"
             if let attempt = storage.lastAttempt() { result["lastFoldAttempt"] = attempt }
             do {
-                result["controllingOwners"] = try records.controllingOwners(for: itemOwners).sorted()
+                let applications = MenuBarOwnerApplications()
+                result["controllingOwners"] = try records.controllingOwners(for: itemOwners, applicationIdentity: applications.identity).sorted()
                 result["ownerMappingReady"] = true
             } catch {
                 result["ownerMappingReady"] = false
