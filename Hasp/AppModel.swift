@@ -225,7 +225,16 @@ final class AppModel: ObservableObject {
     }
     var menuBarMessage: String? {
         get { menuState.message }
-        set { if menuState.message != newValue { menuState.message = newValue } }
+        set {
+            if menuState.message != newValue {
+                menuState.message = newValue
+                if newValue == nil { menuState.messageOpensPermissions = false }
+            }
+        }
+    }
+    var menuBarMessageOpensPermissions: Bool {
+        get { menuState.messageOpensPermissions }
+        set { if menuState.messageOpensPermissions != newValue { menuState.messageOpensPermissions = newValue } }
     }
     var menuBarOpening: Bool {
         get { menuState.opening }
@@ -484,11 +493,13 @@ final class AppModel: ObservableObject {
         menuBarRevealed = false
         menuBarOpening = false
         menuBarMessage = nil
+        menuBarMessageOpensPermissions = false
         menuBarFolded = on
         if on {
             menuBarNeedsAccess = !menuServices.isTrusted()
             if menuBarNeedsAccess {
                 menuBarFolded = false
+                menuBarMessageOpensPermissions = true
                 menuBarMessage = "需要辅助功能权限。请打开「设置 → 权限」启用辅助功能后重试。"
                 return
             }
@@ -537,6 +548,7 @@ final class AppModel: ObservableObject {
             self.menuBarRevealed = false
             self.menuBarOpening = false
             self.menuBarNeedsAccess = false
+            self.menuBarMessageOpensPermissions = error.opensPermissions
             self.menuBarMessage = error.message
             self.menuBarTransitionPending = true
             let rollback = self.menuBarFoldRevision
@@ -660,6 +672,7 @@ final class AppModel: ObservableObject {
         menuBarInteraction = nil
         menuBarOpening = false
         menuBarRevealed = false
+        menuBarMessageOpensPermissions = false
         menuBarMessage = message
         if menuBarFolded {
             let revision = menuBarRevision
@@ -700,6 +713,8 @@ final class AppModel: ObservableObject {
         menuBarRevealed = false
         menuBarOpening = false
         menuBarNeedsAccess = false
+        menuBarMessage = nil
+        menuBarMessageOpensPermissions = false
         menuBarIcons = []
         requestMenuBarLayout(false)
         MenuBarPrefs.show()

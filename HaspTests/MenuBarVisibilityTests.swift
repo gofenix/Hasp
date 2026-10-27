@@ -216,6 +216,12 @@ final class VisibilityFixture: MenuBarVisibilityStorage {
         let final = try PropertyListSerialization.propertyList(from: Data(contentsOf: config), format: nil) as! [String: Any]
         precondition(final["opaque"] as! NSDictionary == untouched["opaque"] as! NSDictionary)
         precondition(final["anotherKey"] as? String == "preserve")
+        precondition(MenuBarVisibilityError.access.opensPermissions
+                     && MenuBarVisibilityError.unreadableLayout.opensPermissions
+                     && MenuBarVisibilityError.rollback.opensPermissions)
+        precondition(!MenuBarVisibilityError.sharedOwner.opensPermissions
+                     && !MenuBarVisibilityError.unmappedOwner.opensPermissions
+                     && !MenuBarVisibilityError.layout.opensPermissions)
         print("PASS: isolated defaults import/readback preserves unrelated keys; helper-to-parent and duplicate ownership; protected/shared groups; unknown owners; codec, user choices, recovery and failure rollback")
     }
 }

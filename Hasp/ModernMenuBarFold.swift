@@ -31,7 +31,12 @@ private final class MenuBarOwnerApplications {
 struct MenuBarLayoutFailure: ExpressibleByStringLiteral {
     var message: String
     var stillFolded: Bool = false
-    init(_ message: String, stillFolded: Bool = false) { self.message = message; self.stillFolded = stillFolded }
+    var opensPermissions: Bool = false
+    init(_ message: String, stillFolded: Bool = false, opensPermissions: Bool = false) {
+        self.message = message
+        self.stillFolded = stillFolded
+        self.opensPermissions = opensPermissions
+    }
     init(stringLiteral value: String) { message = value }
 }
 
@@ -133,7 +138,8 @@ final class ModernMenuBarFold: @unchecked Sendable {
                 Self.log.error("Native menu operation failed: folded=\(folded, privacy: .public) reason=\(failureError.localizedDescription, privacy: .public)")
                 let pending = (try? storage.journal().isEmpty) != true || (try? system.journal().isEmpty) != true
                 if !pending { cacheLock.lock(); cachedIcons = []; cacheLock.unlock() }
-                failure = MenuBarLayoutFailure(failureError.localizedDescription, stillFolded: pending)
+                let opensPermissions = (failureError as? MenuBarVisibilityError)?.opensPermissions == true
+                failure = MenuBarLayoutFailure(failureError.localizedDescription, stillFolded: pending, opensPermissions: opensPermissions)
             }
             if folded {
                 attempt["samples"] = samples

@@ -102,6 +102,13 @@ struct MenuBarVisibilityRecords {
 
 enum MenuBarVisibilityError: LocalizedError {
     case access, format, save, command, confirmation, layout, unreadableLayout, rollback, unmappedOwner, sharedOwner
+    /// Only permission or configuration-access failures should open Settings → 权限.
+    var opensPermissions: Bool {
+        switch self {
+        case .access, .unreadableLayout, .rollback: return true
+        case .format, .save, .command, .confirmation, .layout, .unmappedOwner, .sharedOwner: return false
+        }
+    }
     var errorDescription: String? {
         switch self {
         case .access: return "需要允许 Hasp 访问菜单栏配置。请在「设置 → 权限 → 菜单栏配置访问」中打开完整磁盘访问设置，添加并启用 Hasp。"

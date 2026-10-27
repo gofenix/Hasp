@@ -193,10 +193,12 @@ struct PanelView: View {
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.leading, PanelLayout.textInset)
-                Button("检查权限与访问…") { model.openPermissions() }
-                    .buttonStyle(.plain).font(PanelLayout.secondaryFont).foregroundStyle(.blue)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.leading, PanelLayout.textInset)
+                if model.menuBarMessageOpensPermissions {
+                    Button("检查权限与访问…") { model.openPermissions() }
+                        .buttonStyle(.plain).font(PanelLayout.secondaryFont).foregroundStyle(.blue)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.leading, PanelLayout.textInset)
+                }
             }
             if model.menuState.recoveryPending {
                 Text("显示状态尚未恢复，恢复前不会显示折叠成功。")

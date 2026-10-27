@@ -27,6 +27,8 @@ import Foundation
     @Published var revealed = false
     @Published var needsAccess = false
     @Published var message: String?
+    /// When true, the fold message may offer Settings → 权限. Mapping conflicts must stay false.
+    @Published var messageOpensPermissions = false
     @Published var opening = false
     @Published var refreshing = false
     @Published var layoutPending = false

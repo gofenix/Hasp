@@ -563,6 +563,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 if let error {
                     self.model.menuBarFolded = error.stillFolded
                     self.model.menuState.recoveryPending = error.stillFolded
+                    self.model.menuBarMessageOpensPermissions = error.opensPermissions
                     self.model.menuBarMessage = error.message
                 }
             }
