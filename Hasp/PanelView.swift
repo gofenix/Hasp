@@ -241,9 +241,18 @@ struct PanelView: View {
                         .padding(.top, 8)
                     foldedIconStrip
                     PanelDisclosure(title: "全部 · \(model.menuBarIcons.count)", expanded: $foldedAppsExpanded) {
+                        // Applications and system modules read as two groups,
+                        // matching how Control Center separates them.
+                        let apps = model.menuBarIcons.filter { !$0.id.hasPrefix("system.") }
+                        let modules = model.menuBarIcons.filter { $0.id.hasPrefix("system.") }
                         VStack(spacing: 0) {
-                            ForEach(model.menuBarIcons) { icon in
-                                menuBarNameRow(icon)
+                            if !apps.isEmpty {
+                                foldedGroupCaption("应用")
+                                ForEach(apps) { icon in menuBarNameRow(icon) }
+                            }
+                            if !modules.isEmpty {
+                                foldedGroupCaption("系统").padding(.top, apps.isEmpty ? 0 : 6)
+                                ForEach(modules) { icon in menuBarNameRow(icon) }
                             }
                         }
                     }
@@ -274,15 +283,28 @@ struct PanelView: View {
         .padding(.bottom, 2)
     }
 
+    private func foldedGroupCaption(_ title: String) -> some View {
+        Text(title)
+            .font(PanelLayout.secondaryFont)
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.leading, PanelLayout.textInset)
+            .padding(.top, 4)
+            .padding(.bottom, 2)
+    }
+
     private func menuBarNameRow(_ icon: MenuBarIcon) -> some View {
         Button { model.openMenuBarItem(icon) } label: {
             PanelRow(height: PanelLayout.deviceRowHeight) {
                 PanelIcon(symbol: icon.symbol, image: icon.image)
                 Text(icon.name).lineLimit(1)
                 Spacer(minLength: 0)
-                Image(systemName: "chevron.right")
-                    .font(PanelLayout.secondaryFont).foregroundStyle(.secondary)
-                    .frame(width: PanelLayout.accessoryWidth)
+                // A trailing chevron implied a sub-page; the row opens the
+                // item's own menu, so show its status instead when known.
+                if let status = icon.status {
+                    Text(status).lineLimit(1)
+                        .font(PanelLayout.secondaryFont).foregroundStyle(.secondary)
+                }
             }
         }
         .buttonStyle(PanelActionStyle())
