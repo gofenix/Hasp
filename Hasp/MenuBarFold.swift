@@ -3,9 +3,10 @@ import ApplicationServices
 import Carbon
 import CoreWLAN
 import Foundation
+import Synchronization
 import IOKit.ps
 
-struct MenuBarIcon: Identifiable, Equatable {
+struct MenuBarIcon: Identifiable, Equatable, Sendable {
     var id: String
     var name: String
     var status: String? = nil
@@ -18,6 +19,8 @@ struct MenuBarIcon: Identifiable, Equatable {
     }
 }
 
+/// Immutable AX handles and process identity. AX messaging runs on workers;
+/// no mutable Swift state is shared through this wrapper.
 final class MenuBarTarget: @unchecked Sendable {
     let pid: pid_t
     let element: AXUIElement
@@ -62,7 +65,7 @@ enum MenuBarCensus {
         func frame(_ element: AXUIElement) -> CGRect? {
             guard let value = attribute(element, "AXFrame"), CFGetTypeID(value) == AXValueGetTypeID() else { return nil }
             var result = CGRect.zero
-            return AXValueGetValue(unsafeBitCast(value, to: AXValue.self), .cgRect, &result) ? result : nil
+            return AXValueGetValue(unsafeDowncast(value, to: AXValue.self), .cgRect, &result) ? result : nil
         }
         var result = Set<String>(), readableBars = 0, budget = 512
         var covered = Set<Int>()
@@ -117,8 +120,8 @@ enum MenuBarCensus {
                   CFGetTypeID(p) == AXValueGetTypeID(), CFGetTypeID(s) == AXValueGetTypeID() else { return nil }
             var origin = CGPoint.zero
             var size = CGSize.zero
-            guard AXValueGetValue(unsafeBitCast(p, to: AXValue.self), .cgPoint, &origin),
-                  AXValueGetValue(unsafeBitCast(s, to: AXValue.self), .cgSize, &size) else { return nil }
+            guard AXValueGetValue(unsafeDowncast(p, to: AXValue.self), .cgPoint, &origin),
+                  AXValueGetValue(unsafeDowncast(s, to: AXValue.self), .cgSize, &size) else { return nil }
             if size.width > 0, size.height > 0 { frames.append(CGRect(origin: origin, size: size)) }
         }
         return frames
@@ -135,12 +138,17 @@ enum MenuBarCensus {
             let name = friendlyName(for: app, inputName: inputName).trimmingCharacters(in: .whitespacesAndNewlines)
             guard !name.isEmpty else { continue }
             for (index, element) in statusItems(app).enumerated() {
-                let id = index == 0 ? bundle : "\(bundle).status.\(index)"
+                let id = iconID(bundle: bundle, pid: app.processIdentifier, index: index)
                 let image = ownerApplicationURL(app).map { NSWorkspace.shared.icon(forFile: $0.path) } ?? app.icon
                 icons.append(MenuBarIcon(id: id, name: name, status: statusText(element, name: name), image: image, target: MenuBarTarget(app: app, element: element)))
             }
         }
         return icons.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+    }
+
+    /// A bundle can have multiple live instances, each with its own items.
+    static func iconID(bundle: String, pid: pid_t, index: Int) -> String {
+        "\(bundle).pid.\(pid).status.\(index)"
     }
 
     static func ownerApplicationURL(_ app: NSRunningApplication) -> URL? {
@@ -155,10 +163,10 @@ enum MenuBarCensus {
 
     static var isTrusted: Bool { AXIsProcessTrusted() }
 
-    static func promptForAccess() {
+    @MainActor static func promptForAccess() {
         NSApp.setActivationPolicy(.regular)
         NSApp.activate()
-        let key = kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String
+        let key = "AXTrustedCheckOptionPrompt"
         let options = [key: true] as CFDictionary
         AXIsProcessTrustedWithOptions(options)
     }
@@ -168,7 +176,7 @@ enum MenuBarCensus {
         var value: CFTypeRef?
         guard AXUIElementCopyAttributeValue(element, "AXExtrasMenuBar" as CFString, &value) == .success,
               let value, CFGetTypeID(value) == AXUIElementGetTypeID() else { return [] }
-        let bar = unsafeBitCast(value, to: AXUIElement.self)
+        let bar = unsafeDowncast(value, to: AXUIElement.self)
         var children: CFTypeRef?
         guard AXUIElementCopyAttributeValue(bar, kAXChildrenAttribute as CFString, &children) == .success,
               let items = children as? [AXUIElement] else { return [] }
@@ -276,20 +284,14 @@ enum MenuBarPrefs {
     }
 
     private static let queue = DispatchQueue(label: "app.hasp.menubar")
-    private static let requestLock = NSLock()
-    private static var latestRequest = 0
+    private static let requests = Mutex(0)
 
     /// Enqueue directly from the caller so rapid switch changes stay ordered.
     /// Coalesce superseded requests and perform all preference I/O off the UI.
-    static func transition(hidden: Bool, captureSystemIcons: Bool = false, completion: @escaping ([MenuBarIcon]) -> Void) {
-        requestLock.lock()
-        latestRequest += 1
-        let request = latestRequest
-        requestLock.unlock()
+    static func transition(hidden: Bool, captureSystemIcons: Bool = false, completion: @escaping @MainActor @Sendable ([MenuBarIcon]) -> Void) {
+        let request = requests.withLock { value in value += 1; return value }
         queue.async {
-            requestLock.lock()
-            let current = request == latestRequest
-            requestLock.unlock()
+            let current = requests.withLock { request == $0 }
             guard current else { return }
             // Native targets and Wi-Fi/audio metadata are refreshed separately;
             // do not put remote AX queries on the switch transition's path.

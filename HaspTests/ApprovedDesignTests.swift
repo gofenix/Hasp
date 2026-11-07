@@ -153,7 +153,7 @@ private actor AppearanceProbe {
     }
 
     @MainActor static func render(_ model: AppModel, expanded: Bool, dark: Bool, limit: CGFloat, filename: String) -> CGFloat {
-        let host = NSHostingView(rootView: PanelView(maximumHeight: limit, initiallyExpanded: expanded).environmentObject(model)
+        let host = NSHostingView(rootView: PanelView(maximumHeight: limit, initiallyExpanded: expanded).environment(model)
             .environment(\.colorScheme, dark ? .dark : .light)
             .background(dark ? Color(white: 0.13) : Color(white: 0.96)))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: 900), styleMask: [.borderless], backing: .buffered, defer: false)

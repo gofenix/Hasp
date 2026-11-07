@@ -18,7 +18,7 @@ import SwiftUI
         model.menuBarIcons = icons
         var completions: [(MenuBarLayoutFailure?) -> Void] = []
         model.applyMenuBarLayout = { _, done in completions.append(done) }
-        let host = NSHostingView(rootView: PanelView(maximumHeight: 540).environmentObject(model))
+        let host = NSHostingView(rootView: PanelView(maximumHeight: 540).environment(model))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: 540),
                               styleMask: [.borderless], backing: .buffered, defer: false)
         window.contentView = host

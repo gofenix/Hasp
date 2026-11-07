@@ -1,6 +1,36 @@
 # Hasp
 
-Swift/AppKit/SwiftUI macOS menu-bar app. Requires macOS 26 and Xcode 26.
+常用控制，收进菜单栏。声音输出、蓝牙设备、自动外观和菜单栏折叠，一个原生 Mac 面板就够。
+
+[下载预览版](https://github.com/gofenix/Hasp/releases/tag/v0.1.0-preview.1) · [反馈问题](https://github.com/gofenix/Hasp/issues) · [官网源码](website)
+
+## 预览版下载
+
+需要 macOS 26.0 或更高版本，安装包同时包含 Apple Silicon 和 Intel 架构。下载 ZIP，解压后将完整的 `Hasp.app` 拖入“应用程序”。首次公开版本使用 Developer ID 签名，但尚未完成 Apple 公证，macOS Gatekeeper 可能阻止直接打开。请先阅读 Release 说明。
+
+当前实机验证环境为 macOS 26.6.2。macOS 27 折叠后端有自动化覆盖，尚待实机验收。预览版不代表所有硬件和权限组合均已验证。
+
+## Development
+
+Swift 6 / Observation / AppKit / SwiftUI macOS menu-bar app. The minimum
+runtime remains macOS 26.0. The development toolchain is Xcode 26.6 with its
+bundled Swift 6.3.3 compiler, using Swift 6 language mode. Debug and Release
+both use complete concurrency checking. No Xcode or macOS upgrade is required.
+
+Select the toolchain for this repository's shell commands, without changing
+other projects' global Xcode selection (adjust the path to the installed app):
+
+```sh
+export DEVELOPER_DIR=/Applications/Xcode-26.6.0.app/Contents/Developer
+xcrun swiftc --version
+xcodebuild -version
+```
+
+The SDK version does not raise the app's deployment target. Any macOS 27-only
+API must remain availability-gated with a macOS 26 implementation. AppKit
+retains native menu-bar and popover ownership. Presentation state uses
+Observation; AppKit observes settled changes with coalescing and lifecycle
+cancellation, while blocking hardware and AX calls stay on their workers.
 
 The fixed top toolbar includes a one-click Lock Screen button. It closes the
 panel before requesting the system lock; the appearance selector keeps its full
@@ -46,8 +76,8 @@ and verification codes belong in Xcode's authentication UI, never in this
 project. `HASP_DEVELOPMENT_TEAM` may supply the Team ID instead of `--team`.
 
 Changing the signing identity requires granting permissions to the new app
-once. Future open-source distribution should use its own release signing and
-notarization configuration.
+once. Public preview packages are signed separately with Developer ID. Notarization
+status is recorded per release; a successful local build is not notarization.
 
 ## Permissions
 
@@ -103,15 +133,31 @@ Panel symbols use one size and weight and adapt to the system appearance.
 To regenerate the checked-in app-icon assets after editing the vector:
 
 ```sh
-swiftc -parse-as-library Hasp/IconStyle.swift scripts/generate-icons.swift \
+xcrun swiftc -swift-version 6 -strict-concurrency=complete -parse-as-library Hasp/IconStyle.swift scripts/generate-icons.swift \
   -o build/generate-icons
 build/generate-icons
 ```
 
 ## Existing tests
 
+Run all standalone regression suites with the selected toolchain:
+
 ```sh
-swiftc -parse-as-library Hasp/Solar.swift Hasp/DeviceClassifier.swift \
+python3 scripts/test-local.py
+```
+
+The runner explicitly uses Swift 6 language mode and complete concurrency
+checking, saves compiler/runtime logs and a JSON report under
+`build/swift6-tests`, and supplies each suite's artifact directories. A named
+suite can be selected with `--suite ObservationTests`. The read-only census
+integration suite reports a skip when its existing permission or input-source
+prerequisite is unavailable; a skip is not a passing integration check.
+Observation tests cover re-arming, settled reads, coalescing, stopped callbacks,
+unchanged snapshots, and isolation between audio and appearance updates.
+
+
+```sh
+xcrun swiftc -swift-version 6 -strict-concurrency=complete -parse-as-library Hasp/Solar.swift Hasp/DeviceClassifier.swift \
   HaspTests/main.swift -o /tmp/hasp-tests
 /tmp/hasp-tests
 ```
@@ -124,7 +170,7 @@ the detached scan used when folding. Run it on a logged-in Mac with an
 input-source menu-bar item and Accessibility permission for the test host:
 
 ```sh
-swiftc -parse-as-library Hasp/MenuBarFold.swift Hasp/PreferenceStore.swift Hasp/AudioOutputService.swift \
+xcrun swiftc -swift-version 6 -strict-concurrency=complete -parse-as-library Hasp/MenuBarFold.swift Hasp/PreferenceStore.swift Hasp/AudioOutputService.swift \
   HaspTests/MenuBarCensusBackgroundTests.swift -o /tmp/hasp-census-tests
 /tmp/hasp-census-tests
 ```
@@ -132,7 +178,7 @@ swiftc -parse-as-library Hasp/MenuBarFold.swift Hasp/PreferenceStore.swift Hasp/
 Menu lifetime tests need no GUI interaction or Accessibility permission:
 
 ```sh
-swiftc -parse-as-library Hasp/NativeMenuSessionState.swift \
+xcrun swiftc -swift-version 6 -strict-concurrency=complete -parse-as-library Hasp/NativeMenuSessionState.swift \
   HaspTests/NativeMenuSessionTests.swift -o /tmp/hasp-menu-tests
 /tmp/hasp-menu-tests
 ```
@@ -141,7 +187,7 @@ Preference batch tests use a temporary preference domain and only read the real
 Control Center domain for timing; they do not hide or reveal the user's bar:
 
 ```sh
-swiftc -parse-as-library Hasp/PreferenceStore.swift \
+xcrun swiftc -swift-version 6 -strict-concurrency=complete -parse-as-library Hasp/PreferenceStore.swift \
   HaspTests/PreferenceStoreTests.swift -o /tmp/hasp-preference-tests
 /tmp/hasp-preference-tests
 ```
@@ -151,7 +197,7 @@ the main queue stays responsive, duplicate queries coalesce, and cached results
 arrive on the main queue. No devices are connected or disconnected:
 
 ```sh
-swiftc -parse-as-library Hasp/DeviceClassifier.swift Hasp/SystemBluetoothCatalog.swift \
+xcrun swiftc -swift-version 6 -strict-concurrency=complete -parse-as-library Hasp/DeviceClassifier.swift Hasp/SystemBluetoothCatalog.swift \
   HaspTests/BackgroundBluetoothCatalogTests.swift -o build/bluetooth-catalog-tests
 build/bluetooth-catalog-tests
 ```
@@ -160,12 +206,30 @@ Device presentation tests cover pending disconnect state, rollback on failures,
 and audio error feedback. Compile the app sources without its entry point and
 include `HaspTests/DevicePresentationTests.swift` as the test entry point.
 
+Review regression tests use fake login-item and location services and an isolated
+preferences domain. They verify login-toggle success and failure rollback,
+retrying an estimated solar coordinate after authorization, and safe menu census
+identities across multiple processes. They do not change login items or request
+location permission:
+
+```sh
+python3 - <<'PY'
+from pathlib import Path
+import subprocess
+sources = [str(p) for p in Path('Hasp').glob('*.swift') if p.name != 'HaspApp.swift']
+subprocess.run(['xcrun', 'swiftc', '-swift-version', '6', '-strict-concurrency=complete', '-Onone', '-parse-as-library', *sources,
+                'HaspTests/ReviewRegressionTests.swift', '-o', 'build/review-regression-tests'], check=True)
+for case in ['login', 'location', 'menu']:
+    subprocess.run(['build/review-regression-tests', case], check=True)
+PY
+```
+
 Panel appearance tests reproduce an opposite-theme parent window and verify
 that the popover material and its SwiftUI content stay in the same appearance.
 The test shows no windows and does not change the system theme:
 
 ```sh
-swiftc -parse-as-library Hasp/PanelAppearance.swift HaspTests/PanelAppearanceTests.swift \
+xcrun swiftc -swift-version 6 -strict-concurrency=complete -parse-as-library Hasp/PanelAppearance.swift HaspTests/PanelAppearanceTests.swift \
   -o build/panel-appearance-tests
 build/panel-appearance-tests
 ```
@@ -187,28 +251,6 @@ there is no 0.75-second auto-fold fallback. Unchanged status snapshots retain
 fresh AX handles without publishing a redundant SwiftUI update. Diagnostic
 handoff events use the `app.hasp.menu` / `NativeMenu` unified-log category.
 
-## Permissions
-
-Bluetooth is requested when the panel first opens. Appearance changes require
-permission to control System Events. Solar scheduling can request location.
-Listing third-party menu-bar apps requires Accessibility permission for Hasp.
-The app provides a button to open the Accessibility settings.
-
-## Handoff verification — 2026-10-13
-
-The source was copied from mika's completed local project without changing
-application code. A fresh Debug build and the existing tests passed.
-Running a separate census helper on this Mac identified 15 entries, including
-magpie and 飞书; this does not verify Hasp's own Accessibility authorization.
-The temporary-reveal toggle binding was reviewed in source:
-the switch is off while the menu bar is temporarily revealed.
-
-On 2026-10-14, the installed Apple Development signed app was launched through
-Launch Services for its own diagnostic. Accessibility trust was true and it
-identified 15 menu-bar entries, including magpie and 飞书. The app was then
-started in the background without opening its panel. Interactive folding and
-temporary-reveal behavior remains available for user acceptance.
-
 ## Accessibility diagnostics
 
 The signed app supports `--diagnose-menu-bar`, which prints its bundle ID,
@@ -224,7 +266,6 @@ open -g -j -n -W --stdout /tmp/hasp-menu-bar.json /Applications/Hasp.app \
   --args --diagnose-menu-bar
 ```
 
-The project currently compiles in Swift 5 language mode.
 
 ## Switch responsiveness
 
@@ -335,7 +376,7 @@ python3 - <<'PY'
 from pathlib import Path
 import subprocess
 sources = [str(p) for p in Path('Hasp').glob('*.swift') if p.name != 'HaspApp.swift']
-subprocess.run(['swiftc', '-Onone', '-parse-as-library', *sources,
+subprocess.run(['xcrun', 'swiftc', '-swift-version', '6', '-strict-concurrency=complete', '-Onone', '-parse-as-library', *sources,
                 'HaspTests/SwitchOptimizationTests.swift', '-o', 'build/switch-tests'], check=True)
 subprocess.run(['build/switch-tests'], check=True)
 PY
@@ -405,3 +446,9 @@ Profiler instruments to the existing Hasp process. Signposts under
 `SwitchStateApplied`. They contain operation categories, not device names or
 addresses. Measure visible feedback separately from system completion; handler
 benchmarks do not establish the 50ms first-frame target.
+
+## Source availability
+
+The repository is public. A project-wide open-source license has not yet been
+selected; public visibility alone does not grant a reuse license. Website
+third-party licenses are recorded in [website/THIRD_PARTY_NOTICES.md](website/THIRD_PARTY_NOTICES.md).

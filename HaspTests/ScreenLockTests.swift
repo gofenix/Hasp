@@ -44,7 +44,7 @@ import SwiftUI
         model.outputs = [OutputItem(id: "fake-mac", name: "MacBook Pro 扬声器", kind: .mac, isCurrent: true, pending: false)]
         func render(dark: Bool, height: CGFloat, message: String? = nil) throws {
             model.screenLockState.message = message
-            let host = NSHostingView(rootView: PanelView(maximumHeight: height).environmentObject(model)
+            let host = NSHostingView(rootView: PanelView(maximumHeight: height).environment(model)
                 .environment(\.colorScheme, dark ? .dark : .light)
                 .background(dark ? Color(white: 0.12) : Color(white: 0.97)))
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: height),

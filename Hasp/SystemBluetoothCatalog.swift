@@ -7,7 +7,7 @@ enum SystemBluetoothCatalog {
         cache.values
     }
 
-    static func refresh(onUpdate: @escaping () -> Void) {
+    static func refresh(onUpdate: @escaping @MainActor @Sendable () -> Void) {
         cache.refresh(onUpdate: onUpdate)
     }
 
@@ -63,13 +63,13 @@ enum SystemBluetoothCatalog {
 final class BackgroundBluetoothCatalog: @unchecked Sendable {
     private let lock = NSLock()
     private let queue = DispatchQueue(label: "app.hasp.bluetooth-catalog", qos: .utility)
-    private let loader: () -> [String: DeviceKind]
+    private let loader: @Sendable () -> [String: DeviceKind]
     private let lifetime: TimeInterval
     private var snapshot: [String: DeviceKind] = [:]
     private var updatedAt = Date.distantPast
     private var loading = false
 
-    init(lifetime: TimeInterval = 5, loader: @escaping () -> [String: DeviceKind]) {
+    init(lifetime: TimeInterval = 5, loader: @escaping @Sendable () -> [String: DeviceKind]) {
         self.lifetime = lifetime
         self.loader = loader
     }
@@ -86,7 +86,7 @@ final class BackgroundBluetoothCatalog: @unchecked Sendable {
         }
     }
 
-    func refresh(onUpdate: @escaping () -> Void) {
+    func refresh(onUpdate: @escaping @MainActor @Sendable () -> Void) {
         lock.lock()
         guard !loading, Date().timeIntervalSince(updatedAt) >= lifetime else {
             lock.unlock()

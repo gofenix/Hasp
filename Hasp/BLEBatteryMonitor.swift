@@ -1,8 +1,10 @@
 import CoreBluetooth
 import Foundation
 
-final class BLEBatteryMonitor: NSObject, CBCentralManagerDelegate, CBPeripheralDelegate {
-    var onUpdate: (() -> Void)?
+/// Mutable peripheral state is confined to queue; levels is protected by lock.
+/// The notification callback belongs exclusively to the main actor.
+final class BLEBatteryMonitor: NSObject, CBCentralManagerDelegate, CBPeripheralDelegate, @unchecked Sendable {
+    @MainActor var onUpdate: (@MainActor @Sendable () -> Void)?
 
     private let batteryService = CBUUID(string: "180F")
     private let batteryLevel = CBUUID(string: "2A19")

@@ -1,12 +1,22 @@
 import AppKit
 
+/// Copy only the notification identity needed for dismissal across isolation.
+struct PanelDismissNotice: Sendable {
+    let menuID: ObjectIdentifier?
+    let processID: pid_t?
+    init(_ note: Notification) {
+        menuID = (note.object as? NSMenu).map(ObjectIdentifier.init)
+        processID = (note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication)?.processIdentifier
+    }
+}
+
 /// Event observation is passive: global events cannot be changed, and local
 /// mouse events are always returned unchanged to their original destination.
 @MainActor struct PanelDismissEventSource {
     enum Center { case application, workspace }
     var globalMouse: (@escaping (NSEvent) -> Void) -> (() -> Void)
     var localInput: (@escaping (NSEvent) -> NSEvent?) -> (() -> Void)
-    var notification: (Notification.Name, Center, @escaping (Notification) -> Void) -> (() -> Void)
+    var notification: (Notification.Name, Center, @escaping @MainActor @Sendable (PanelDismissNotice) -> Void) -> (() -> Void)
 
     static var live: Self {
         Self(globalMouse: { handler in
@@ -24,7 +34,8 @@ import AppKit
         }, notification: { name, center, handler in
             let notifications = center == .workspace ? NSWorkspace.shared.notificationCenter : NotificationCenter.default
             let token = notifications.addObserver(forName: name, object: nil, queue: .main) { note in
-                MainActor.assumeIsolated { handler(note) }
+                let notice = PanelDismissNotice(note)
+                MainActor.assumeIsolated { handler(notice) }
             }
             return { notifications.removeObserver(token) }
         })
@@ -80,15 +91,13 @@ import AppKit
         })
         for name in [NSMenu.didBeginTrackingNotification, NSMenu.didEndTrackingNotification] {
             cleanups.append(source.notification(name, .application) { [weak self] note in
-                guard let self, self.session == activeSession, let menu = note.object as? NSMenu else { return }
-                let id = ObjectIdentifier(menu)
+                guard let self, self.session == activeSession, let id = note.menuID else { return }
                 if name == NSMenu.didBeginTrackingNotification { self.menus.insert(id) }
                 else { self.menus.remove(id) }
             })
         }
         cleanups.append(source.notification(NSWorkspace.didActivateApplicationNotification, .workspace) { note in
-            guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
-                  app.processIdentifier != ProcessInfo.processInfo.processIdentifier else { return }
+            guard let pid = note.processID, pid != ProcessInfo.processInfo.processIdentifier else { return }
             dismiss()
         })
         for (name, center) in [
@@ -110,9 +119,5 @@ import AppKit
         menus.removeAll()
     }
 
-    deinit {
-        let remaining = cleanups
-        if Thread.isMainThread { remaining.forEach { $0() } }
-        else { DispatchQueue.main.async { remaining.forEach { $0() } } }
-    }
+    isolated deinit { cleanups.forEach { $0() } }
 }

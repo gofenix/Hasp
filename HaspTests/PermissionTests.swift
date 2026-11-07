@@ -1,5 +1,5 @@
 import AppKit
-import Combine
+import Observation
 import SwiftUI
 
 #if !PERMISSION_FOCUSED_TESTS
@@ -47,7 +47,7 @@ import SwiftUI
         precondition(center.status(.accessibility) == .checking)
         await center.refresh()
         var quietSignals = 0
-        let observation = center.objectWillChange.sink { quietSignals += 1 }
+        let observation = StateObservation(read: { _ = (center.statuses, center.refreshing, center.pending, center.feedback) }, didChange: { quietSignals += 1 })
         for _ in 0..<12 { await center.refresh() }
         precondition(quietSignals == 0, "Unchanged passive checks must cause zero redraw signals")
         backend.hold = true
@@ -152,7 +152,7 @@ import SwiftUI
             try rep.representation(using: .png, properties: [:])!.write(to: folder.appendingPathComponent("permissions-\(name).png"))
         }
         precondition(backend.requests.count == requestCount && backend.openings.count == openCount, "Rendering cannot prompt or open settings")
-        observation.cancel()
+        observation.stop()
         print("PASS: 12 unchanged passive checks publish 0 signals; clicks during blocked checks reach the backend; reads coalesce; stale checks cannot undo consent; native errors/callbacks; invisible light/dark previews")
     }
 }

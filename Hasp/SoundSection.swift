@@ -2,7 +2,7 @@ import SwiftUI
 
 struct SoundSection: View {
     let model: AppModel
-    @ObservedObject private var state: AudioState
+    private var state: AudioState
     @State private var expanded: Bool
 
     init(model: AppModel, initiallyExpanded: Bool = false) {

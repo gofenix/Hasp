@@ -1,4 +1,4 @@
-import Combine
+import Observation
 import Darwin
 import Foundation
 
@@ -10,7 +10,7 @@ enum ScreenLockError: LocalizedError {
 /// Runtime-bound because login.framework is private and can change between
 /// macOS versions. No key events, automation, sleep or screensaver fallback.
 /// The resolved function is only invoked by the explicit user action.
-final class NativeScreenLock {
+@MainActor final class NativeScreenLock {
     static let shared = NativeScreenLock()
     private let handle: UnsafeMutableRawPointer?
     private let function: (@convention(c) () -> Void)?
@@ -21,7 +21,7 @@ final class NativeScreenLock {
         function = library.flatMap { dlsym($0, "SACLockScreenImmediate") }
             .map { unsafeBitCast($0, to: (@convention(c) () -> Void).self) }
     }
-    deinit { if let handle { dlclose(handle) } }
+    isolated deinit { if let handle { dlclose(handle) } }
     var available: Bool { function != nil }
     func lock() throws {
         guard let function else { throw ScreenLockError.unavailable }
@@ -29,7 +29,7 @@ final class NativeScreenLock {
     }
 }
 
-@MainActor final class ScreenLockState: ObservableObject {
-    @Published var pending = false
-    @Published var message: String?
+@MainActor @Observable final class ScreenLockState {
+    var pending = false
+    var message: String?
 }

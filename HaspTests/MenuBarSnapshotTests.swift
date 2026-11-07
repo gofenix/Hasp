@@ -1,5 +1,5 @@
 import AppKit
-import Combine
+import Observation
 import Foundation
 import SwiftUI
 
@@ -43,7 +43,7 @@ import SwiftUI
         var publications: [[String]] = []
         var visualFolds: [Bool] = []
         model.setMenuBarSpacer = { visualFolds.append($0) }
-        let observer = model.menuState.$icons.dropFirst().sink { publications.append($0.map(\.id)) }
+        let observer = StateObservation(read: { _ = model.menuBarIcons }, didChange: { publications.append(model.menuBarIcons.map(\.id)) })
 
         // A slow first census may have system placeholders available already,
         // but the actual fold callback must not publish a half-list.
@@ -57,6 +57,7 @@ import SwiftUI
         precondition(model.menuState.refreshing && publications.isEmpty && model.menuBarIcons.isEmpty)
         gate.release(complete)
         await wait { !model.menuBarScanPending }
+        await wait { publications.count == 1 }
         precondition(publications == [complete.map(\.id)], "Only the full list may be published")
 
         // OFF and a slow refresh retain the full cache. Identical snapshots
@@ -71,13 +72,14 @@ import SwiftUI
         precondition(publications.count == 1)
 
         var warmSignals = 0
-        let warmObserver = model.menuState.objectWillChange.sink { warmSignals += 1 }
+        let warmObserver = StateObservation(read: { model.trackPanelPresentation() }, didChange: { warmSignals += 1 })
         model.refreshMenuBarItems(force: false)
         precondition(!model.menuBarScanPending && gate.reads == 2, "A fresh cache must skip repeated open/timer scans")
         model.refreshMenuBarItems()
         await wait { gate.reads == 3 }
         gate.release(complete)
         await wait { !model.menuBarScanPending }
+        try! await Task.sleep(for: .milliseconds(10))
         precondition(warmSignals == 0, "An identical warm scan must not invalidate the menu section")
 
         // An old unfolded scan cannot overwrite a newer fold. It is discarded
@@ -96,6 +98,7 @@ import SwiftUI
         }
         gate.release(updated)
         await wait { !model.menuBarScanPending }
+        await wait { publications.count == 2 }
         precondition(model.menuBarIcons == updated && publications.count == 2)
 
         // Rapid ON/OFF callbacks arrive out of order; only the newest can
@@ -224,7 +227,7 @@ import SwiftUI
         // Measure the real panel in an unshown window. A single overall
         // viewport now bounds all expanded content to the available height.
         func panelSize() -> NSSize {
-            let view = NSHostingView(rootView: PanelView(maximumHeight: 540).environmentObject(model))
+            let view = NSHostingView(rootView: PanelView(maximumHeight: 540).environment(model))
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: 800), styleMask: [.borderless], backing: .buffered, defer: false)
             window.contentView = view
             for _ in 0..<4 {

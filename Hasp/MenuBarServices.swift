@@ -1,7 +1,7 @@
 import Foundation
 
 /// A scan returns the entire list. Intermediate results stay off the UI.
-struct MenuBarServices {
+@MainActor struct MenuBarServices {
     var snapshot: () async -> [MenuBarIcon]
     var transition: (Bool, @escaping () -> Void) -> Void
     var isTrusted: () -> Bool

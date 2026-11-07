@@ -8,10 +8,10 @@ final class LatestRequest<Value: Equatable & Sendable> {
     private var revision = 0
     private var desired: (revision: Int, value: Value)?
     private var running = false
-    private let operation: (Value) async -> Bool
-    private let completion: (Value, Bool) -> Void
+    private let operation: @MainActor (Value) async -> Bool
+    private let completion: @MainActor (Value, Bool) -> Void
 
-    init(operation: @escaping (Value) async -> Bool, completion: @escaping (Value, Bool) -> Void) {
+    init(operation: @escaping @MainActor (Value) async -> Bool, completion: @escaping @MainActor (Value, Bool) -> Void) {
         self.operation = operation
         self.completion = completion
     }

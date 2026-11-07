@@ -5,13 +5,13 @@ enum SwitchDiagnostics {
     /// Explicit opt-in probe, never part of startup or a read-only diagnostic.
     /// The runner must normally quit the ordinary app first; a live instance
     /// makes this probe refuse all writes. Only one known icon is targeted.
-    @MainActor static func probeNativeFoldTransport(transport: NativeMenuBarVisibilityStorage.Transport = .container) async -> [String: Any] {
+    @MainActor static func probeNativeFoldTransport(transport: NativeMenuBarVisibilityStorage.Transport = .container) async -> Data {
         let others = NSRunningApplication.runningApplications(withBundleIdentifier: "app.hasp.menu")
             .filter { $0.processIdentifier != ProcessInfo.processInfo.processIdentifier }
-        guard others.isEmpty else { return ["refused": "Quit the regular Hasp instance before this explicit probe."] }
+        guard others.isEmpty else { return DiagnosticJSON.encode { ["refused": "Quit the regular Hasp instance before this explicit probe."] } }
         let top = NSScreen.screens.first?.frame.maxY ?? 0
         let strips = NSScreen.screens.map { CGRect(x: $0.frame.minX, y: top - $0.frame.maxY, width: $0.frame.width, height: 40) }
-        return await Task.detached {
+        return await Task.detached { DiagnosticJSON.encode {
             let owner = "com.yetone.magpie"
             let storage = NativeMenuBarVisibilityStorage(transport: transport)
             let transaction = MenuBarVisibilityTransaction(storage: storage)
@@ -63,10 +63,10 @@ enum SwitchDiagnostics {
                 catch { report["recoveryFailure"] = error.localizedDescription }
             }
             return report
-        }.value
+        } }.value
     }
 
-    @MainActor static func foldCompatibilityReport() async -> [String: Any] {
+    @MainActor static func foldCompatibilityReport() async -> Data {
         let policy = MenuBarCompatibility.policy(majorVersion: ProcessInfo.processInfo.operatingSystemVersion.majorVersion)
         let displays = NSScreen.screens.map {
             MenuBarFoldGeometry.Display(width: $0.frame.width, trailingWidth: $0.auxiliaryTopRightArea?.width)
@@ -77,8 +77,9 @@ enum SwitchDiagnostics {
         let strips = NSScreen.screens.map { CGRect(x: $0.frame.minX, y: top - $0.frame.maxY, width: $0.frame.width, height: 40) }
         let rendered = await Task.detached { MenuBarCensus.nativeRenderedOwners(strips: strips) }.value
         let owners = Set(targets.map(\.bundleIdentifier))
-        let native = policy == .native27 ? await Task.detached { ModernMenuBarFold.inspectConfiguration(itemOwners: owners) }.value : [:]
-        return [
+        let nativeData = policy == .native27 ? await Task.detached { DiagnosticJSON.encode { ModernMenuBarFold.inspectConfiguration(itemOwners: owners) } }.value : Data("{}".utf8)
+        let native = DiagnosticJSON.decode(nativeData)
+        return DiagnosticJSON.encode { [
             "scope": "Read-only geometry and AX check; no status items registered, no fold or window changes",
             "systemVersion": ProcessInfo.processInfo.operatingSystemVersionString,
             "compatibilityPolicy": policy.rawValue,
@@ -95,15 +96,15 @@ enum SwitchDiagnostics {
             "geometryReadComplete": frames != nil,
             "rectangleCount": frames?.count ?? 0,
             "foldInteractionVerified": false
-        ]
+        ] }
     }
 
-    static func audioInventoryReport() async -> [String: Any] {
+    static func audioInventoryReport() async -> Data {
         let reader = HardwareReader(bluetooth: BluetoothService())
         _ = await reader.read(includeBattery: false)
         await SystemBluetoothCatalog.finishRefresh()
         let snapshot = await reader.read(includeBattery: true)
-        return [
+        return DiagnosticJSON.encode { [
             "scope": "Read-only app-owned audio inventory; no connection or output changes",
             "outputs": AudioOutputInventory.items(snapshot).map { item in
                 ["name": item.name, "paired": item.bluetoothAddress != nil,
@@ -111,10 +112,10 @@ enum SwitchDiagnostics {
                  "audioEndpointReady": item.audioUID != nil, "subtitle": item.subtitle] as [String: Any]
             },
             "pairedDeviceCount": snapshot.devices.count
-        ]
+        ] }
     }
 
-    static func readOnlyReport() async -> [String: Any] {
+    static func readOnlyReport() async -> Data {
         let targetReady = await AppearanceService.ensureTargetRunning()
         let reader = HardwareReader(bluetooth: BluetoothService())
         let start = DispatchTime.now().uptimeNanoseconds
@@ -143,6 +144,6 @@ enum SwitchDiagnostics {
             "systemEventsReady": targetReady
         ]
         if let appearance { report["darkModeReadViaAppleEvents"] = appearance }
-        return report
+        return DiagnosticJSON.encode { report }
     }
 }

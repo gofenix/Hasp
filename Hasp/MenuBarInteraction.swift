@@ -12,6 +12,7 @@ private struct MenuPresentationSnapshot {
 
 /// All remote AX/window queries run on a worker. Electron tray elements can
 /// live in a helper while their native menus belong to the main application.
+/// Immutable native handles; each session serializes scan/press operations.
 private final class MenuPresentationProbe: @unchecked Sendable {
     let target: MenuBarTarget
     let applications: [AXUIElement]
@@ -66,7 +67,7 @@ private final class MenuPresentationProbe: @unchecked Sendable {
         var frame: CGRect?
         if let value = MenuBarCensus.attribute(target.element, "AXFrame"), CFGetTypeID(value) == AXValueGetTypeID() {
             var rect = CGRect.zero
-            if AXValueGetValue(unsafeBitCast(value, to: AXValue.self), .cgRect, &rect) { frame = rect }
+            if AXValueGetValue(unsafeDowncast(value, to: AXValue.self), .cgRect, &rect) { frame = rect }
         }
         return MenuPresentationSnapshot(visibility: visibility, windows: popups, windowServerAvailable: current != nil,
             targetFrame: frame, targetTerminated: NSRunningApplication(processIdentifier: target.pid)?.isTerminated != false)
@@ -119,15 +120,16 @@ final class MenuBarInteraction {
     func start() {
         active = true
         let probe = self.probe
-        let context = Unmanaged.passUnretained(self).toOpaque()
         Task.detached { [weak self] in
+            guard let self else { return }
+            let context = Unmanaged.passUnretained(self).toOpaque()
             let baseline = Set((probe.windows() ?? [:]).keys)
             let observers = Self.makeObservers(probe: probe, context: context)
-            await self?.prepared(observers: observers, baseline: baseline)
+            await self.prepared(observers: observers, baseline: baseline)
         }
     }
 
-    private func prepared(observers: [AXObserver], baseline: Set<CGWindowID>) {
+    private func prepared(observers: sending [AXObserver], baseline: Set<CGWindowID>) {
         guard active else { return }
         self.observers = observers
         baselineWindows = baseline

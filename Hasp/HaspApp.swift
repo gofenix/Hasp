@@ -1,5 +1,5 @@
 import AppKit
-import Combine
+import Observation
 import SwiftUI
 
 @MainActor
@@ -15,8 +15,8 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
     private let panelDismissMonitor = PanelDismissMonitor()
     private let model: AppModel
     private var afterDismiss: (() -> Void)?
-    private var appearanceSubscription: AnyCancellable?
-    private var preparationSubscriptions = Set<AnyCancellable>()
+    private var stateObservations: [StateObservation] = []
+    private var screenObserver: (any NSObjectProtocol)?
     private var preparationQueued = false
     private var updatePanelLimit: ((CGFloat) -> Void)?
     private var layoutTask: Task<Void, Never>?
@@ -64,34 +64,39 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
         popover.behavior = .transient
         popover.animates = false
         popover.delegate = self
-        let host = NSHostingController(rootView: PanelView().environmentObject(model))
+        let host = NSHostingController(rootView: PanelView().environment(model))
         updatePanelLimit = { [weak host] height in
-            host?.rootView = PanelView(maximumHeight: height).environmentObject(model)
+            host?.rootView = PanelView(maximumHeight: height).environment(model)
         }
         host.sizingOptions = [.preferredContentSize]
         popover.contentViewController = host
         // Status-bar windows can inherit a light appearance from the bar's
         // backdrop while SwiftUI follows the system's dark appearance. Keep
         // the material and its content in the same appearance domain.
-        appearanceSubscription = model.appearanceState.$isDark.removeDuplicates().sink { [weak self] dark in
-            self?.updateAppearance(dark: dark)
-        }
-        // Prepare changed cached contents while closed. Coalesce publisher
-        // bursts and defer until the model has finished assigning its fields.
-        for publisher in [model.appearanceState.objectWillChange, model.audioState.objectWillChange,
-                          model.deviceState.objectWillChange, model.menuState.objectWillChange] {
-            publisher.sink { [weak self] _ in self?.preparePanelSoon() }
-                .store(in: &preparationSubscriptions)
-        }
-        NotificationCenter.default.publisher(for: NSApplication.didChangeScreenParametersNotification)
-            .sink { [weak self] _ in
-                guard Self.compatibility == .legacy26, let self, self.model.menuBarFolded, !self.model.menuBarRevealed else { return }
-                self.model.setMenuBarFolded(true)
-            }.store(in: &preparationSubscriptions)
+        updateAppearance(dark: model.isDark)
+        stateObservations.append(StateObservation(read: { [weak model] in _ = model?.isDark }, didChange: { [weak self] in
+            guard let self else { return }
+            self.updateAppearance(dark: self.model.isDark)
+        }))
+        stateObservations.append(StateObservation(read: { [weak model] in model?.trackPanelPresentation() }, didChange: { [weak self] in
+            self?.preparePanelSoon()
+        }))
+        screenObserver = NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification,
+            object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard Self.compatibility == .legacy26, let self, self.model.menuBarFolded, !self.model.menuBarRevealed else { return }
+                    self.model.setMenuBarFolded(true)
+                }
+            }
         preparePanelSoon()
     }
 
-    func setSpacer(_ collapsed: Bool, completion: @escaping (MenuBarLayoutFailure?) -> Void) {
+    isolated deinit {
+        stateObservations.forEach { $0.stop() }
+        if let screenObserver { NotificationCenter.default.removeObserver(screenObserver) }
+    }
+
+    func setSpacer(_ collapsed: Bool, completion: @escaping @MainActor @Sendable (MenuBarLayoutFailure?) -> Void) {
         layoutGeneration += 1
         let generation = layoutGeneration
         layoutTask?.cancel()
@@ -299,7 +304,7 @@ enum SettingsWindow {
 
     static func show(model: AppModel) {
         if window == nil {
-            let host = NSHostingController(rootView: SettingsView().environmentObject(model))
+            let host = NSHostingController(rootView: SettingsView().environment(model))
             let window = NSWindow(contentViewController: host)
             window.title = "Hasp"
             window.identifier = NSUserInterfaceItemIdentifier("hasp.settings")
@@ -395,7 +400,7 @@ enum SettingsWindow {
 }
 
 @main
-enum HaspMain {
+@MainActor enum HaspMain {
     static func main() {
         let app = NSApplication.shared
         if CommandLine.arguments.contains("--diagnose-lock-screen") {
@@ -413,7 +418,7 @@ enum HaspMain {
                 let top = NSScreen.screens.first?.frame.maxY ?? 0
                 let strips = NSScreen.screens.map { CGRect(x: $0.frame.minX, y: top - $0.frame.maxY, width: $0.frame.width, height: 40) }
                 let foreground = NSWorkspace.shared.frontmostApplication?.processIdentifier
-                let report = await Task.detached { () -> [String: Any] in
+                let encodedReport = await Task.detached { DiagnosticJSON.encode {
                     let system = SystemMenuVisibility()
                     var report: [String: Any] = [:]
                     do {
@@ -436,8 +441,8 @@ enum HaspMain {
                         }
                     } catch { report["failure"] = error.localizedDescription; try? system.restore() }
                     return report
-                }.value
-                var output = report
+                } }.value
+                var output = DiagnosticJSON.decode(encodedReport)
                 output["foregroundStayedSame"] = NSWorkspace.shared.frontmostApplication?.processIdentifier == foreground
                 print(String(data: try! JSONSerialization.data(withJSONObject: output, options: [.prettyPrinted, .sortedKeys]), encoding: .utf8)!)
                 exit(0)
@@ -460,8 +465,7 @@ enum HaspMain {
             app.setActivationPolicy(.accessory)
             Task { @MainActor in
                 let transport: NativeMenuBarVisibilityStorage.Transport = CommandLine.arguments.contains("--direct-preferences") ? .direct : (CommandLine.arguments.contains("--refresh-preferences-suite") ? .suiteRefresh : .container)
-                let report = await SwitchDiagnostics.probeNativeFoldTransport(transport: transport)
-                let data = try! JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys])
+                let data = await SwitchDiagnostics.probeNativeFoldTransport(transport: transport)
                 print(String(data: data, encoding: .utf8)!)
                 exit(0)
             }
@@ -484,8 +488,7 @@ enum HaspMain {
         if CommandLine.arguments.contains("--diagnose-fold-compatibility") {
             app.setActivationPolicy(.accessory)
             Task { @MainActor in
-                let report = await SwitchDiagnostics.foldCompatibilityReport()
-                let data = try! JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys])
+                let data = await SwitchDiagnostics.foldCompatibilityReport()
                 print(String(data: data, encoding: .utf8)!)
                 exit(0)
             }
@@ -495,8 +498,7 @@ enum HaspMain {
         if CommandLine.arguments.contains("--diagnose-audio-inventory") {
             app.setActivationPolicy(.accessory)
             Task {
-                let report = await SwitchDiagnostics.audioInventoryReport()
-                let data = try! JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys])
+                let data = await SwitchDiagnostics.audioInventoryReport()
                 print(String(data: data, encoding: .utf8)!)
                 exit(0)
             }
@@ -506,8 +508,7 @@ enum HaspMain {
         if CommandLine.arguments.contains("--diagnose-switch-performance") {
             app.setActivationPolicy(.accessory)
             Task {
-                let report = await SwitchDiagnostics.readOnlyReport()
-                let data = try! JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys])
+                let data = await SwitchDiagnostics.readOnlyReport()
                 print(String(data: data, encoding: .utf8)!)
                 exit(0)
             }

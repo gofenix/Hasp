@@ -1,15 +1,15 @@
 import Foundation
+import Synchronization
 
 @main
 enum BackgroundBluetoothCatalogTests {
     static func main() {
         let started = DispatchSemaphore(value: 0)
         let release = DispatchSemaphore(value: 0)
-        let lock = NSLock()
-        var calls = 0
+        let calls = Mutex(0)
         let catalog = BackgroundBluetoothCatalog {
             precondition(!Thread.isMainThread, "Profiler must run off the UI thread")
-            lock.lock(); calls += 1; lock.unlock()
+            calls.withLock { $0 += 1 }
             started.signal()
             precondition(release.wait(timeout: .now() + 5) == .success)
             return ["001122334455": .trackpad]
@@ -29,12 +29,12 @@ enum BackgroundBluetoothCatalogTests {
         DispatchQueue.main.async { heartbeat = true }
         pump(until: { heartbeat })
         precondition(!updated)
-        lock.lock(); precondition(calls == 1); lock.unlock()
+        precondition(calls.withLock { $0 == 1 })
         release.signal()
         pump(until: { updated })
         precondition(catalog.values == ["001122334455": .trackpad])
         catalog.refresh { preconditionFailure("Fresh cache should be reused") }
-        lock.lock(); precondition(calls == 1); lock.unlock()
+        precondition(calls.withLock { $0 == 1 })
         print("ok: UI responsive during blocked refresh; requests coalesced; result delivered on main")
     }
 

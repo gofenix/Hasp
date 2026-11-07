@@ -12,7 +12,7 @@ enum SwitchTrace {
         signposter.emitEvent("SwitchStateApplied", "kind=\(kind, privacy: .public)")
     }
 
-    static func operation<T>(_ kind: String, _ body: () async -> T) async -> T {
+    @MainActor static func operation<T>(_ kind: String, _ body: @MainActor () async -> T) async -> T {
         let start = DispatchTime.now().uptimeNanoseconds
         let state = signposter.beginInterval("SwitchBackend", id: signposter.makeSignpostID(), "kind=\(kind, privacy: .public)")
         let result = await body()

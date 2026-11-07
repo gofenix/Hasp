@@ -4,7 +4,7 @@ import AppKit
     var point = CGPoint(x: 100, y: 100)
     var global: ((NSEvent) -> Void)?
     var local: ((NSEvent) -> NSEvent?)?
-    var notes: [Notification.Name: (Notification) -> Void] = [:]
+    var notes: [Notification.Name: (PanelDismissNotice) -> Void] = [:]
     var registrations = 0
     var removals = 0
     var source: PanelDismissEventSource {
@@ -20,7 +20,7 @@ import AppKit
         })
     }
     func send(_ name: Notification.Name, object: Any? = nil, userInfo: [AnyHashable: Any]? = nil) {
-        notes[name]?(Notification(name: name, object: object, userInfo: userInfo))
+        notes[name]?(PanelDismissNotice(Notification(name: name, object: object, userInfo: userInfo)))
     }
 }
 
@@ -86,7 +86,7 @@ import AppKit
         let staleActivation = gate.notes[NSApplication.didResignActiveNotification]
         start()
         staleGlobal?(mouse)
-        staleActivation?(Notification(name: NSApplication.didResignActiveNotification))
+        staleActivation?(PanelDismissNotice(Notification(name: NSApplication.didResignActiveNotification)))
         precondition(closes == 4, "A stale callback must not close a newly reopened panel")
         gate.send(NSWorkspace.activeSpaceDidChangeNotification)
         precondition(closes == 5)

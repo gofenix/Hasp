@@ -46,7 +46,7 @@ enum AudioOutputService {
         return name.isEmpty ? nil : name
     }
 
-    static func startWatching(_ onChange: @escaping () -> Void) {
+    static func startWatching(_ onChange: @escaping @MainActor @Sendable () -> Void) {
         watch.lock.lock()
         watch.callbacks.append(onChange)
         let shouldInstall = !watch.installed
@@ -60,9 +60,7 @@ enum AudioOutputService {
     private static func installWatchers() {
         let block: AudioObjectPropertyListenerBlock = { _, _ in
             let callbacks = watch.snapshot()
-            for callback in callbacks {
-                callback()
-            }
+            MainActor.assumeIsolated { callbacks.forEach { $0() } }
         }
         watch.lock.lock()
         watch.block = block
@@ -159,13 +157,14 @@ enum AudioOutputService {
 
     private static let watch = WatchBox()
 
+    /// All mutable fields are accessed under lock; callbacks run only on main.
     private final class WatchBox: @unchecked Sendable {
         let lock = NSLock()
-        var callbacks: [() -> Void] = []
+        var callbacks: [@MainActor @Sendable () -> Void] = []
         var installed = false
         var block: AudioObjectPropertyListenerBlock?
 
-        func snapshot() -> [() -> Void] {
+        func snapshot() -> [@MainActor @Sendable () -> Void] {
             lock.lock()
             defer { lock.unlock() }
             return callbacks

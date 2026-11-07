@@ -3,7 +3,7 @@ import Combine
 import SwiftUI
 
 struct PermissionSettingsView: View {
-    @ObservedObject var center: PermissionCenter
+    var center: PermissionCenter
     private let bundleURL: URL
     @State private var appeared = false
     @State private var helpExpanded: Bool

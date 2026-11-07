@@ -1,19 +1,15 @@
 import SwiftUI
 
 struct PanelView: View {
-    @EnvironmentObject private var model: AppModel
+    @Environment(AppModel.self) private var model
     var maximumHeight: CGFloat
     private let initiallyExpanded: Bool
-    @State private var otherDevicesExpanded: Bool
-    @State private var foldedAppsExpanded: Bool
     @State private var contentHeight: CGFloat = 500
     @State private var headerHeight: CGFloat = 28
 
     init(maximumHeight: CGFloat = 720, initiallyExpanded: Bool = false) {
         self.maximumHeight = maximumHeight
         self.initiallyExpanded = initiallyExpanded
-        _otherDevicesExpanded = State(initialValue: initiallyExpanded)
-        _foldedAppsExpanded = State(initialValue: initiallyExpanded)
     }
 
     private var scrollLimit: CGFloat { max(0, maximumHeight - PanelLayout.footerChrome - headerHeight - PanelLayout.gap) }
@@ -46,31 +42,41 @@ struct PanelView: View {
 
     private var panelContent: some View {
         VStack(spacing: 16) {
-            StateScope(state: model.appearanceState) {
-                panelSection("外观") { appearanceRow }
-            }
+            AppearanceSection()
             SoundSection(model: model, initiallyExpanded: initiallyExpanded)
-            StateScope(state: model.deviceState) {
-                panelSection("键盘与鼠标") {
-                    if model.bluetoothGate == .ready {
-                        deviceSection(items: model.inputs.filter { $0.kind != .other }, empty: "没有已配对的键盘或鼠标")
-                        otherDevices
-                    } else {
-                        bluetoothGate
-                    }
-                }
-            }
-            StateScope(state: model.menuState) { menuBarSection }
+            InputDeviceSection(initiallyExpanded: initiallyExpanded)
+            FoldedMenuSection(initiallyExpanded: initiallyExpanded)
         }
     }
 
-    private func panelSection<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+    private var footer: some View {
+        Button { model.openSettings() } label: {
+            PanelRow(height: PanelLayout.footerHeight) {
+                PanelIcon(symbol: "gearshape")
+                Text("设置")
+                Spacer(minLength: 0)
+            }
+        }
+        .buttonStyle(PanelActionStyle())
+        .accessibilityLabel("设置")
+    }
+}
+
+private struct PanelSection<Content: View>: View {
+    var title: String
+    @ViewBuilder var content: () -> Content
+    var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             PanelSectionTitle(title: title)
             content()
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
+}
+
+private struct AppearanceSection: View {
+    @Environment(AppModel.self) private var model
+    var body: some View { PanelSection(title: "外观") { appearanceRow } }
 
     private var appearanceRow: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -107,6 +113,21 @@ struct PanelView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+}
+
+private struct InputDeviceSection: View {
+    @Environment(AppModel.self) private var model
+    @State private var otherDevicesExpanded: Bool
+    init(initiallyExpanded: Bool) { _otherDevicesExpanded = State(initialValue: initiallyExpanded) }
+    var body: some View {
+        PanelSection(title: "键盘与鼠标") {
+            if model.bluetoothGate == .ready {
+                deviceSection(items: model.inputs.filter { $0.kind != .other }, empty: "没有已配对的键盘或鼠标")
+                otherDevices
+            } else { bluetoothGate }
+        }
     }
 
     private var bluetoothGate: some View {
@@ -160,7 +181,14 @@ struct PanelView: View {
         }
     }
 
-    private var menuBarSection: some View {
+}
+
+private struct FoldedMenuSection: View {
+    @Environment(AppModel.self) private var model
+    @State private var foldedAppsExpanded: Bool
+    init(initiallyExpanded: Bool) { _foldedAppsExpanded = State(initialValue: initiallyExpanded) }
+
+    var body: some View {
         VStack(spacing: 0) {
             PanelRow(height: PanelLayout.deviceRowHeight) {
                 PanelIcon(symbol: "menubar.arrow.up.rectangle", symbolPointSize: 17, symbolWeight: .medium)
@@ -320,22 +348,11 @@ struct PanelView: View {
         }
     }
 
-    private var footer: some View {
-        Button { model.openSettings() } label: {
-            PanelRow(height: PanelLayout.footerHeight) {
-                PanelIcon(symbol: "gearshape")
-                Text("设置")
-                Spacer(minLength: 0)
-            }
-        }
-        .buttonStyle(PanelActionStyle())
-        .accessibilityLabel("设置")
-    }
 }
 
 struct DeviceRow: View {
     let item: DeviceItem
-    let onToggle: (Bool) -> Void
+    let onToggle: @MainActor (Bool) -> Void
 
     var body: some View {
         PanelRow(height: PanelLayout.deviceRowHeight) {
@@ -353,62 +370,56 @@ struct DeviceRow: View {
                 Text(battery).font(PanelLayout.secondaryFont).monospacedDigit().foregroundStyle(.secondary)
                     .frame(width: PanelLayout.batteryWidth, alignment: .trailing)
             }
-            PanelToggle(title: "连接\(item.name)", isOn: Binding(get: { item.switchOn }, set: onToggle))
+            PanelToggle(title: "连接\(item.name)", isOn: Binding(get: { item.switchOn }, set: { onToggle($0) }))
         }
         .help("\(item.name)\n\(item.subtitle)")
     }
 }
 
 struct SettingsView: View {
-    @EnvironmentObject private var model: AppModel
+    @Environment(AppModel.self) private var model
 
     var body: some View {
-        StateScope(state: model.settingsState) {
-            SettingsLayout(selection: Binding(get: { model.settingsState.selectedTab }, set: { model.settingsState.selectedTab = $0 })) {
-                switch model.settingsState.selectedTab {
-                case .general: general
-                case .permissions: PermissionSettingsView(center: model.permissions)
-                }
+        SettingsLayout(selection: Binding(get: { model.settingsState.selectedTab }, set: { model.settingsState.selectedTab = $0 })) {
+            switch model.settingsState.selectedTab {
+            case .general: general
+            case .permissions: PermissionSettingsView(center: model.permissions)
             }
         }
     }
 
     private var general: some View {
-        StateScope(state: model.appearanceState) {
-            StateScope(state: model.settingsState) {
-                Form {
-                    Section("自动外观") {
-                        Picker("日程", selection: Binding(get: { model.scheduleMode }, set: { model.selectSchedule($0) })) {
-                            Text("关闭自动切换").tag(ScheduleMode.off)
-                            Text("随日出日落").tag(ScheduleMode.solar)
-                            Text("18:00 至次日 06:00").tag(ScheduleMode.fixed)
-                            Text("自定义时段").tag(ScheduleMode.custom)
-                        }
-                        if model.scheduleMode == .custom {
-                            DatePicker("深色开始", selection: startDate, displayedComponents: .hourAndMinute)
-                            DatePicker("深色结束", selection: endDate, displayedComponents: .hourAndMinute)
-                            if model.customStart == model.customEnd {
-                                Text("开始与结束相同：不启用深色")
-                                    .font(.caption).foregroundStyle(.secondary)
-                            }
-                        } else {
-                            Text(scheduleSummary)
-                                .font(.caption).foregroundStyle(.secondary)
-                        }
-                    }
-                    Section("通用") {
-                        Toggle("登录时打开", isOn: Binding(
-                            get: { model.launchAtLogin },
-                            set: { model.setLaunchAtLogin($0) }
-                        ))
-                    }
-                    Section {
-                        Button("退出 Hasp") { NSApp.terminate(nil) }
-                    }
+        Form {
+            Section("自动外观") {
+                Picker("日程", selection: Binding(get: { model.scheduleMode }, set: { model.selectSchedule($0) })) {
+                    Text("关闭自动切换").tag(ScheduleMode.off)
+                    Text("随日出日落").tag(ScheduleMode.solar)
+                    Text("18:00 至次日 06:00").tag(ScheduleMode.fixed)
+                    Text("自定义时段").tag(ScheduleMode.custom)
                 }
-                .formStyle(.grouped)
+                if model.scheduleMode == .custom {
+                    DatePicker("深色开始", selection: startDate, displayedComponents: .hourAndMinute)
+                    DatePicker("深色结束", selection: endDate, displayedComponents: .hourAndMinute)
+                    if model.customStart == model.customEnd {
+                        Text("开始与结束相同：不启用深色")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                } else {
+                    Text(scheduleSummary)
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            Section("通用") {
+                Toggle("登录时打开", isOn: Binding(
+                    get: { model.launchAtLogin },
+                    set: { model.setLaunchAtLogin($0) }
+                ))
+            }
+            Section {
+                Button("退出 Hasp") { NSApp.terminate(nil) }
             }
         }
+        .formStyle(.grouped)
     }
 
     private var scheduleSummary: String {
@@ -468,13 +479,4 @@ struct SettingsLayout<Content: View>: View {
         .background(Color(nsColor: .windowBackgroundColor))
         .frame(minWidth: 520, idealWidth: 560, minHeight: 460, idealHeight: 540)
     }
-}
-
-/// A section subscribes only to its own state. The coordinator itself never
-/// broadcasts unrelated updates to the full panel.
-private struct StateScope<State: ObservableObject, Content: View>: View {
-    @ObservedObject var state: State
-    @ViewBuilder let content: () -> Content
-
-    var body: some View { content() }
 }

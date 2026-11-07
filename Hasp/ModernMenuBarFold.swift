@@ -59,7 +59,7 @@ final class ModernMenuBarFold: @unchecked Sendable {
         }).sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
     }
 
-    @MainActor func apply(_ folded: Bool, icons: [MenuBarIcon], completion: @escaping (MenuBarLayoutFailure?) -> Void) {
+    @MainActor func apply(_ folded: Bool, icons: [MenuBarIcon], completion: @escaping @MainActor @Sendable (MenuBarLayoutFailure?) -> Void) {
         let primaryTop = NSScreen.screens.first?.frame.maxY ?? 0
         let strips = NSScreen.screens.map { CGRect(x: $0.frame.minX, y: primaryTop - $0.frame.maxY, width: $0.frame.width, height: 40) }
         queue.async { [self] in

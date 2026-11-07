@@ -1,5 +1,5 @@
 import AppKit
-import Combine
+import Observation
 import CoreAudio
 import Foundation
 
@@ -78,9 +78,9 @@ actor FakeHardware {
         var appearanceSignals = 0
         var globalSignals = 0
         let observers = [
-            model.audioState.objectWillChange.sink { audioSignals += 1 },
-            model.appearanceState.objectWillChange.sink { appearanceSignals += 1 },
-            model.objectWillChange.sink { globalSignals += 1 }
+            StateObservation(read: { _ = (model.outputs, model.audioState.recentHeadphoneID) }, didChange: { audioSignals += 1 }),
+            StateObservation(read: { _ = (model.isDark, model.scheduleMode, model.appearanceState.requested, model.permissionMessage) }, didChange: { appearanceSignals += 1 }),
+            StateObservation(read: { _ = (model.audioState, model.appearanceState, model.deviceState, model.menuState) }, didChange: { globalSignals += 1 })
         ]
         let identical = model.outputs
         for _ in 0..<40 { model.outputs = identical }
@@ -112,6 +112,7 @@ actor FakeHardware {
         await wait { model.appearanceState.requested == nil }
         precondition(!model.isDark && audioSignals == 0)
 
+        await wait { appearanceSignals > 0 }
         let appearanceBeforeAudio = appearanceSignals
         let initialOrder = model.outputs.map(\.id)
         model.selectOutput(model.outputs[1], on: true)
@@ -207,6 +208,7 @@ actor FakeHardware {
         await stale.finishHardwareRefresh()
         precondition(stale.outputs[1].isCurrent)
 
+        observers.forEach { $0.stop() }
         withExtendedLifetime(observers) {}
         let ordered = handlerTimes.sorted()
         let report: [String: Any] = [

@@ -1,38 +1,38 @@
-import Combine
+import Observation
 import Foundation
 
-@MainActor final class AppearanceState: ObservableObject {
-    @Published var isDark = false
-    @Published var scheduleMode: ScheduleMode = .off
-    @Published var customStart = 18 * 60
-    @Published var customEnd = 6 * 60
-    @Published var permissionMessage: String?
-    @Published var scheduleMenuVisible = false
-    @Published var requested: Bool?
+@MainActor @Observable final class AppearanceState {
+    var isDark = false
+    var scheduleMode: ScheduleMode = .off
+    var customStart = 18 * 60
+    var customEnd = 6 * 60
+    var permissionMessage: String?
+    var scheduleMenuVisible = false
+    var requested: Bool?
 }
 
-@MainActor final class AudioState: ObservableObject {
-    @Published var outputs: [OutputItem] = []
-    @Published var recentHeadphoneID: String?
+@MainActor @Observable final class AudioState {
+    var outputs: [OutputItem] = []
+    var recentHeadphoneID: String?
 }
 
-@MainActor final class DeviceState: ObservableObject {
-    @Published var inputs: [DeviceItem] = []
-    @Published var bluetoothGate: BluetoothGate = .pending
+@MainActor @Observable final class DeviceState {
+    var inputs: [DeviceItem] = []
+    var bluetoothGate: BluetoothGate = .pending
 }
 
-@MainActor final class MenuBarState: ObservableObject {
-    @Published var folded = false
-    @Published var icons: [MenuBarIcon] = []
-    @Published var revealed = false
-    @Published var needsAccess = false
-    @Published var message: String?
+@MainActor @Observable final class MenuBarState {
+    var folded = false
+    var icons: [MenuBarIcon] = []
+    var revealed = false
+    var needsAccess = false
+    var message: String?
     /// When true, the fold message may offer Settings → 权限. Mapping conflicts must stay false.
-    @Published var messageOpensPermissions = false
-    @Published var opening = false
-    @Published var refreshing = false
-    @Published var layoutPending = false
-    @Published var recoveryPending = false
+    var messageOpensPermissions = false
+    var opening = false
+    var refreshing = false
+    var layoutPending = false
+    var recoveryPending = false
 
     // The switch reflects the user's request immediately. Native completion
     // is communicated separately; a failed request rolls folded back.
@@ -44,7 +44,7 @@ import Foundation
 
 enum SettingsTab: Hashable { case general, permissions }
 
-@MainActor final class SettingsState: ObservableObject {
-    @Published var launchAtLogin = true
-    @Published var selectedTab: SettingsTab = .general
+@MainActor @Observable final class SettingsState {
+    var launchAtLogin = true
+    var selectedTab: SettingsTab = .general
 }

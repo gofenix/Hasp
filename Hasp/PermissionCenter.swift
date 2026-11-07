@@ -1,7 +1,7 @@
 import AppKit
 import ApplicationServices
 import Carbon
-import Combine
+import Observation
 import CoreBluetooth
 import CoreLocation
 
@@ -94,11 +94,11 @@ extension PermissionBackend {
     func observeChanges(_ handler: @escaping @MainActor () -> Void) {}
 }
 
-@MainActor final class PermissionCenter: ObservableObject {
-    @Published private(set) var statuses: [HaspPermission: PermissionStatus] = [:]
-    @Published private(set) var refreshing = false
-    @Published private(set) var pending: Set<HaspPermission> = []
-    @Published private(set) var feedback: [HaspPermission: String] = [:]
+@MainActor @Observable final class PermissionCenter {
+    private(set) var statuses: [HaspPermission: PermissionStatus] = [:]
+    private(set) var refreshing = false
+    private(set) var pending: Set<HaspPermission> = []
+    private(set) var feedback: [HaspPermission: String] = [:]
     var requesting: HaspPermission? { HaspPermission.allCases.first(where: pending.contains) }
     var message: String? { HaspPermission.allCases.compactMap { feedback[$0] }.first }
     private let backend: PermissionBackend
@@ -243,7 +243,7 @@ extension PermissionBackend {
         case .accessibility:
             // Currently the dashboard routes AX to Settings; keep prompting
             // explicit if a future native status gains notDetermined support.
-            _ = AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary)
+            _ = AXIsProcessTrustedWithOptions(["AXTrustedCheckOptionPrompt": true] as CFDictionary)
             return nil
         case .automation:
             guard await AppearanceService.ensureTargetRunning() else { return "无法启动 System Events，请打开自动化设置检查。" }

@@ -7,20 +7,20 @@ private func IOBluetoothPreferenceGetControllerPowerState() -> Int32
 @_silgen_name("IOBluetoothPreferenceSetControllerPowerState")
 private func IOBluetoothPreferenceSetControllerPowerState(_ state: Int32)
 
-// Notification registrations belong to main; worker reads use watchDisconnects
-// false and connection commands touch no mutable registration state.
+// Notification registrations belong to main; worker reads
+// and connection commands touch no mutable registration state.
 final class BluetoothService: NSObject, @unchecked Sendable {
-    var onDevicesChanged: (() -> Void)?
-    private var connectNotification: IOBluetoothUserNotification?
-    private var disconnectNotifications: [String: IOBluetoothUserNotification] = [:]
+    @MainActor var onDevicesChanged: (@MainActor @Sendable () -> Void)?
+    @MainActor private var connectNotification: IOBluetoothUserNotification?
+    @MainActor private var disconnectNotifications: [String: IOBluetoothUserNotification] = [:]
     private let pageTimeout: BluetoothHCIPageTimeout = 24_000
 
-    func start() {
+    @MainActor func start() {
         precondition(Thread.isMainThread)
         connectNotification = IOBluetoothDevice.register(forConnectNotifications: self, selector: #selector(deviceConnected(_:device:)))
     }
 
-    func watchDevices(addresses: [String]) {
+    @MainActor func watchDevices(addresses: [String]) {
         precondition(Thread.isMainThread)
         // Repeated snapshots already have these registrations. Avoid native
         // device lookups on the UI thread for every unchanged address.
@@ -45,11 +45,8 @@ final class BluetoothService: NSObject, @unchecked Sendable {
         return isPoweredOn()
     }
 
-    func pairedDevices(watchDisconnects: Bool = true) -> [(address: String, name: String, kind: DeviceKind, connected: Bool)] {
+    func pairedDevices() -> [(address: String, name: String, kind: DeviceKind, connected: Bool)] {
         let devices = (IOBluetoothDevice.pairedDevices() as? [IOBluetoothDevice]) ?? []
-        if watchDisconnects {
-            refreshDisconnectWatches(devices)
-        }
         let catalog = SystemBluetoothCatalog.kindsByAddress()
         SystemBluetoothCatalog.refresh { [weak self] in self?.onDevicesChanged?() }
         return devices.compactMap { device in
@@ -77,7 +74,7 @@ final class BluetoothService: NSObject, @unchecked Sendable {
         return !device.isConnected()
     }
 
-    private func refreshDisconnectWatches(_ devices: [IOBluetoothDevice]? = nil) {
+    @MainActor private func refreshDisconnectWatches(_ devices: [IOBluetoothDevice]? = nil) {
         let devices = devices ?? ((IOBluetoothDevice.pairedDevices() as? [IOBluetoothDevice]) ?? [])
         for device in devices {
             guard let address = device.addressString, disconnectNotifications[address] == nil else { continue }

@@ -14,7 +14,8 @@ struct HardwareSnapshot: Sendable {
     var batteries: [String: String]
 }
 
-/// All synchronous framework and registry reads are confined to this queue.
+/// All synchronous framework and registry reads and mutable battery cache
+/// access are confined to queue. Only Sendable value snapshots leave it.
 final class HardwareReader: @unchecked Sendable {
     private let queue = DispatchQueue(label: "app.hasp.hardware-snapshot", qos: .userInitiated)
     private let bluetooth: BluetoothService
@@ -30,7 +31,7 @@ final class HardwareReader: @unchecked Sendable {
                 let outputs = AudioOutputService.outputs()
                 let devices: [PairedDevice]
                 if CBCentralManager.authorization == .allowedAlways {
-                    devices = bluetooth.pairedDevices(watchDisconnects: false).map {
+                    devices = bluetooth.pairedDevices().map {
                         PairedDevice(address: $0.address, name: $0.name, kind: $0.kind, connected: $0.connected)
                     }
                 } else {
@@ -58,12 +59,12 @@ struct AppearanceIntent: Equatable, Sendable {
 
 /// Injected in regression tests, so delayed/failed operations need no live
 /// theme, audio routing, device connections or system preference changes.
-struct SwitchServices {
-    var appearance: (AppearanceIntent) async -> Bool
-    var audio: (String) async -> Bool
-    var device: (String, Bool) async -> Bool
-    var snapshot: (Bool) async -> HardwareSnapshot
-    var availableOutputs: () async -> [ListedOutput] = { [] }
+struct SwitchServices: Sendable {
+    var appearance: @Sendable (AppearanceIntent) async -> Bool
+    var audio: @Sendable (String) async -> Bool
+    var device: @Sendable (String, Bool) async -> Bool
+    var snapshot: @Sendable (Bool) async -> HardwareSnapshot
+    var availableOutputs: @Sendable () async -> [ListedOutput] = { [] }
     var audioReadyTimeout: TimeInterval = 8
 
     static func live(bluetooth: BluetoothService) -> Self {

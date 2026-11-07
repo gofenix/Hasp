@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 struct PanelHeader: View {
-    @ObservedObject var state: ScreenLockState
+    var state: ScreenLockState
     var lock: () -> Void
     @State private var hovering = false
 

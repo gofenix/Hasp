@@ -1,5 +1,5 @@
 import AppKit
-import Combine
+import Observation
 import ApplicationServices
 import CoreAudio
 import CoreBluetooth
@@ -159,17 +159,14 @@ struct DeviceItem: Identifiable, Equatable {
 }
 
 @MainActor
-final class AppModel: ObservableObject {
-    // Stable coordinator publisher, intentionally never sent. Presentation
-    // publishers live in the main-actor domain states below.
-    nonisolated(unsafe) let objectWillChange = ObservableObjectPublisher()
+@Observable final class AppModel {
     let appearanceState = AppearanceState()
     let audioState = AudioState()
     let deviceState = DeviceState()
     let menuState = MenuBarState()
     let settingsState = SettingsState()
     let screenLockState = ScreenLockState()
-    var screenLockAction: () throws -> Void = { try NativeScreenLock.shared.lock() }
+    @ObservationIgnored var screenLockAction: () throws -> Void = { try NativeScreenLock.shared.lock() }
     let permissions = PermissionCenter()
     var isDark: Bool {
         get { appearanceState.isDark }
@@ -248,58 +245,68 @@ final class AppModel: ObservableObject {
     let store: SettingsStore
     let bluetooth = BluetoothService()
     let ble = BLEBatteryMonitor()
-    private let locationFetcher = LocationFetcher()
-    private var scheduleTimer: Timer?
-    private var panelVisible = false
-    private var bluetoothStarted = false
-    private var bluetoothStarting = false
-    private var pairedNames: [(address: String, name: String)] = []
-    private var hardwareBatteries: [String: String] = [:]
-    private var menuBarRefreshTimer: Timer?
-    private var menuBarRefreshPending = false
-    private var menuBarRefreshedAt = Date.distantPast
-    private var menuBarTransitionPending = false
-    private var latestMenuBarItems: [String: MenuBarIcon] = [:]
-    private var menuBarRevision = 0
-    private var menuBarFoldRevision = 0
-    private var menuBarLayoutRevision = 0
-    private var menuBarInteraction: MenuBarInteraction?
+    private let locationFetcher: any SolarLocationFetching
+    private let loginItem: any LoginItemManaging
+    @ObservationIgnored private var solarLocationPending = false
+    @ObservationIgnored private var scheduleTimer: Timer?
+    @ObservationIgnored private var panelVisible = false
+    @ObservationIgnored private var bluetoothStarted = false
+    @ObservationIgnored private var bluetoothStarting = false
+    @ObservationIgnored private var pairedNames: [(address: String, name: String)] = []
+    @ObservationIgnored private var hardwareBatteries: [String: String] = [:]
+    @ObservationIgnored private var menuBarRefreshTimer: Timer?
+    @ObservationIgnored private var menuBarRefreshPending = false
+    @ObservationIgnored private var menuBarRefreshedAt = Date.distantPast
+    @ObservationIgnored private var menuBarTransitionPending = false
+    @ObservationIgnored private var latestMenuBarItems: [String: MenuBarIcon] = [:]
+    @ObservationIgnored private var menuBarRevision = 0
+    @ObservationIgnored private var menuBarFoldRevision = 0
+    @ObservationIgnored private var menuBarLayoutRevision = 0
+    @ObservationIgnored private var menuBarInteraction: MenuBarInteraction?
     private let services: SwitchServices
     private let menuServices: MenuBarServices
-    private var hardwareTask: Task<Void, Never>?
-    private var hardwareDirty = false
-    private var hardwareWantsBattery = false
-    private var hardwareRevision = 0
-    private var requestedAudio: String?
-    private var disconnectTasks: [String: Task<Void, Never>] = [:]
-    private var headphoneRowRevisions: [String: Int] = [:]
-    private var audioIntentRevision = 0
-    private var headphoneTask: Task<Void, Never>?
-    private var headphoneConnections: [String: (id: UUID, connected: Bool, task: Task<Bool, Never>)] = [:]
-    private var deviceCommands: [String: LatestRequest<Bool>] = [:]
-    private lazy var appearanceCommands = LatestRequest<AppearanceIntent>(
-        operation: { [services] intent in await SwitchTrace.operation("appearance") { await services.appearance(intent) } },
-        completion: { [weak self] intent, ok in self?.appearanceCompleted(intent, ok: ok) }
-    )
-    private lazy var audioCommands = LatestRequest<AudioSelection>(
-        operation: { [weak self] selection in
-            guard let self, self.requestedAudio == selection.id else { return false }
-            return await SwitchTrace.operation("audio") { await self.services.audio(selection.uid) }
-        },
-        completion: { [weak self] selection, ok in self?.audioCompleted(selection, ok: ok) }
-    )
+    @ObservationIgnored private var hardwareTask: Task<Void, Never>?
+    @ObservationIgnored private var hardwareDirty = false
+    @ObservationIgnored private var hardwareWantsBattery = false
+    @ObservationIgnored private var hardwareRevision = 0
+    @ObservationIgnored private var requestedAudio: String?
+    @ObservationIgnored private var disconnectTasks: [String: Task<Void, Never>] = [:]
+    @ObservationIgnored private var headphoneRowRevisions: [String: Int] = [:]
+    @ObservationIgnored private var audioIntentRevision = 0
+    @ObservationIgnored private var headphoneTask: Task<Void, Never>?
+    @ObservationIgnored private var headphoneConnections: [String: (id: UUID, connected: Bool, task: Task<Bool, Never>)] = [:]
+    @ObservationIgnored private var deviceCommands: [String: LatestRequest<Bool>] = [:]
+    // Initialized after the service dependencies so callbacks can capture self.
+    @ObservationIgnored private var appearanceCommands: LatestRequest<AppearanceIntent>!
+    @ObservationIgnored private var audioCommands: LatestRequest<AudioSelection>!
 
-    init(services: SwitchServices? = nil, store: SettingsStore = SettingsStore(), menuServices: MenuBarServices = .live) {
+    init(services: SwitchServices? = nil, store: SettingsStore = SettingsStore(), menuServices: MenuBarServices = .live,
+         locationFetcher: any SolarLocationFetching = LocationFetcher(), loginItem: any LoginItemManaging = NativeLoginItemManager()) {
         self.store = store
         self.services = services ?? SwitchServices.live(bluetooth: bluetooth)
         self.menuServices = menuServices
+        self.locationFetcher = locationFetcher
+        self.loginItem = loginItem
         audioState.recentHeadphoneID = store.recentHeadphoneID
+        appearanceCommands = LatestRequest(
+            operation: { [services = self.services] intent in
+                await SwitchTrace.operation("appearance") { await services.appearance(intent) }
+            },
+            completion: { [weak self] intent, ok in self?.appearanceCompleted(intent, ok: ok) }
+        )
+        audioCommands = LatestRequest(
+            operation: { [weak self] selection in
+                guard let self, self.requestedAudio == selection.id else { return false }
+                return await SwitchTrace.operation("audio") { await self.services.audio(selection.uid) }
+            },
+            completion: { [weak self] selection, ok in self?.audioCompleted(selection, ok: ok) }
+        )
     }
 
-    var setMenuBarSpacer: ((Bool) -> Void)?
-    var applyMenuBarLayout: ((Bool, @escaping (MenuBarLayoutFailure?) -> Void) -> Void)?
-    var dismissPanel: ((@escaping () -> Void) -> Void)?
-    var presentPanel: (() -> Void)?
+    @ObservationIgnored var setMenuBarSpacer: ((Bool) -> Void)?
+    @ObservationIgnored var applyMenuBarLayout: ((Bool, @escaping @MainActor @Sendable (MenuBarLayoutFailure?) -> Void) -> Void)?
+    @ObservationIgnored var dismissPanel: ((@escaping () -> Void) -> Void)?
+    @ObservationIgnored var presentPanel: (() -> Void)?
 
     var appearanceSwitchOn: Bool {
         appearanceState.requested ?? (scheduleMode != .off || isDark)
@@ -337,6 +344,15 @@ final class AppModel: ObservableObject {
         case .custom:
             return Solar.formatRange(start: customStart, end: customEnd)
         }
+    }
+
+    /// The closed-panel preparation observes only fields rendered by its sections.
+    func trackPanelPresentation() {
+        _ = (isDark, scheduleMode, customStart, customEnd, permissionMessage, appearanceState.requested)
+        _ = (outputs, audioState.recentHeadphoneID, inputs, bluetoothGate)
+        _ = (menuBarFolded, menuBarIcons, menuBarRevealed, menuBarNeedsAccess, menuBarMessage,
+             menuBarMessageOpensPermissions, menuBarOpening, menuState.refreshing, menuState.layoutPending, menuState.recoveryPending)
+        _ = (screenLockState.pending, screenLockState.message)
     }
 
     func start() {
@@ -458,7 +474,7 @@ final class AppModel: ObservableObject {
         bluetoothStarting = true
         let bluetooth = self.bluetooth
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            _ = bluetooth.pairedDevices(watchDisconnects: false)
+            _ = bluetooth.pairedDevices()
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 let denied = CBCentralManager.authorization == .denied || CBCentralManager.authorization == .restricted
@@ -584,6 +600,9 @@ final class AppModel: ObservableObject {
         menuBarRefreshPending = false
         if menuState.refreshing { menuState.refreshing = false }
         guard revision == menuBarRevision else { refreshMenuBarItems(); return }
+        // Keep the census boundary safe even if a backend repeats an item.
+        var seen = Set<String>()
+        let icons = icons.filter { seen.insert($0.id).inserted }
         menuBarRefreshedAt = Date()
         let previousIDs = Set(menuBarIcons.map(\.id))
         latestMenuBarItems = Dictionary(uniqueKeysWithValues: icons.map { ($0.id, $0) })
@@ -639,7 +658,7 @@ final class AppModel: ObservableObject {
                           let value = MenuBarCensus.attribute(candidate.element, "AXFrame"),
                           CFGetTypeID(value) == AXValueGetTypeID() else { return nil }
                     var rect = CGRect.zero
-                    guard AXValueGetValue(unsafeBitCast(value, to: AXValue.self), .cgRect, &rect) else { return nil }
+                    guard AXValueGetValue(unsafeDowncast(value, to: AXValue.self), .cgRect, &rect) else { return nil }
                     return (candidate, rect)
                 }.value
                 if let (candidate, rect) = resolved {
@@ -720,23 +739,26 @@ final class AppModel: ObservableObject {
         MenuBarPrefs.show()
     }
 
-    private var accessTimer: Timer?
+    @ObservationIgnored private var accessTimer: Timer?
+    @ObservationIgnored private var accessTries = 0
 
     private func watchMenuBarAccess() {
         accessTimer?.invalidate()
-        var tries = 0
+        accessTries = 0
         accessTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { [weak self] timer in
-            tries += 1
-            let trusted = MenuBarCensus.isTrusted
-            if trusted {
-                Task { @MainActor in
-                    guard let self, self.menuBarFolded else { return }
+            // Scheduled on the main run loop; keep Timer itself in its callback.
+            let finished = MainActor.assumeIsolated {
+                guard let self else { return true }
+                self.accessTries += 1
+                let trusted = MenuBarCensus.isTrusted
+                if trusted, self.menuBarFolded {
                     self.refreshMenuBarItems()
                     self.menuBarNeedsAccess = false
                     NSApp.setActivationPolicy(.accessory)
                 }
+                return trusted || self.accessTries > 20
             }
-            if trusted || tries > 20 { timer.invalidate() }
+            if finished { timer.invalidate() }
         }
     }
 
@@ -790,7 +812,6 @@ final class AppModel: ObservableObject {
     }
 
     func setLaunchAtLogin(_ on: Bool) {
-        store.launchAtLogin = on
         applyLaunchAtLogin(on)
     }
 
@@ -1022,12 +1043,14 @@ final class AppModel: ObservableObject {
 
     private func prepareSolarCoordinate() {
         if store.latitude != nil, store.longitude != nil, !store.locationIsEstimate { return }
-        if store.didAskLocation, store.latitude != nil { return }
+        if store.didAskLocation, store.latitude != nil, !locationFetcher.isAuthorized { return }
+        guard !solarLocationPending else { return }
+        solarLocationPending = true
         store.didAskLocation = true
-        NSApp.activate()
         locationFetcher.request { [weak self] location in
             Task { @MainActor in
                 guard let self else { return }
+                self.solarLocationPending = false
                 if let location {
                     self.store.latitude = location.coordinate.latitude
                     self.store.longitude = location.coordinate.longitude
@@ -1215,25 +1238,47 @@ final class AppModel: ObservableObject {
 
     private func applyLaunchAtLogin(_ on: Bool) {
         do {
-            if on {
-                if SMAppService.mainApp.status != .enabled {
-                    try SMAppService.mainApp.register()
-                }
-            } else if SMAppService.mainApp.status == .enabled {
-                try SMAppService.mainApp.unregister()
-            }
+            try loginItem.setEnabled(on)
+            launchAtLogin = on
         } catch {
-            launchAtLogin = SMAppService.mainApp.status == .enabled
+            launchAtLogin = loginItem.enabled
         }
+        store.launchAtLogin = launchAtLogin
     }
 
 }
 
-final class LocationFetcher: NSObject, CLLocationManagerDelegate {
+@MainActor protocol LoginItemManaging {
+    var enabled: Bool { get }
+    func setEnabled(_ on: Bool) throws
+}
+
+struct NativeLoginItemManager: LoginItemManaging {
+    var enabled: Bool { SMAppService.mainApp.status == .enabled }
+    func setEnabled(_ on: Bool) throws {
+        if on {
+            if !enabled { try SMAppService.mainApp.register() }
+        } else if enabled {
+            try SMAppService.mainApp.unregister()
+        }
+    }
+}
+
+@MainActor protocol SolarLocationFetching {
+    var isAuthorized: Bool { get }
+    func request(_ completion: @escaping (CLLocation?) -> Void)
+}
+
+final class LocationFetcher: NSObject, @MainActor CLLocationManagerDelegate, SolarLocationFetching {
     private let manager = CLLocationManager()
     private var completion: ((CLLocation?) -> Void)?
 
+    var isAuthorized: Bool {
+        manager.authorizationStatus == .authorized || manager.authorizationStatus == .authorizedAlways
+    }
+
     func request(_ completion: @escaping (CLLocation?) -> Void) {
+        NSApp.activate()
         self.completion = completion
         manager.delegate = self
         switch manager.authorizationStatus {

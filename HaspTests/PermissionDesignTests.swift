@@ -22,7 +22,7 @@ import SwiftUI
 }
 
 private struct PermissionFixture: View {
-    @ObservedObject var navigation: SettingsState
+    var navigation: SettingsState
     let center: PermissionCenter
     var expanded = false
     var body: some View {
@@ -118,7 +118,7 @@ private struct PermissionFixture: View {
         let model = AppModel(services: SwitchServices(appearance: { _ in false }, audio: { _ in false }, device: { _, _ in false },
             snapshot: { _ in HardwareSnapshot(outputs: [], devices: [], batteries: [:]) }), store: SettingsStore(defaults: defaults))
         for dark in [false, true] {
-            _ = render(SettingsView().environmentObject(model), size: NSSize(width: 560, height: 540), dark: dark,
+            _ = render(SettingsView().environment(model), size: NSSize(width: 560, height: 540), dark: dark,
                        file: folder.appendingPathComponent("general-\(dark ? "dark" : "light").png"))
         }
         precondition(clipboard == NSPasteboard.general.changeCount)
