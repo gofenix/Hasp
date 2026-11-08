@@ -2,13 +2,13 @@
 
 常用控制，收进菜单栏。声音输出、蓝牙设备、自动外观和菜单栏折叠，一个原生 Mac 面板就够。
 
-[下载预览版](https://github.com/gofenix/Hasp/releases/tag/v0.1.0-preview.1) · [反馈问题](https://github.com/gofenix/Hasp/issues) · [官网源码](website)
+[下载 Mac 版](https://github.com/gofenix/Hasp/releases/tag/v0.1.0) · [反馈问题](https://github.com/gofenix/Hasp/issues) · [官网源码](website)
 
-## 预览版下载
+## 下载
 
-需要 macOS 26.0 或更高版本，安装包同时包含 Apple Silicon 和 Intel 架构。下载 ZIP，解压后将完整的 `Hasp.app` 拖入“应用程序”。首次公开版本使用 Developer ID 签名，但尚未完成 Apple 公证，macOS Gatekeeper 可能阻止直接打开。请先阅读 Release 说明。
+需要 macOS 26.0 或更高版本，安装包同时包含 Apple Silicon 和 Intel 架构。下载 ZIP，解压后将完整的 `Hasp.app` 拖入“应用程序”。安装包使用 Developer ID 签名，但尚未完成 Apple 公证，macOS Gatekeeper 可能阻止直接打开。请先阅读 Release 说明。
 
-当前实机验证环境为 macOS 26.6.2。macOS 27 折叠后端有自动化覆盖，尚待实机验收。预览版不代表所有硬件和权限组合均已验证。
+当前实机验证环境为 macOS 26.6.2。macOS 27 折叠后端有自动化覆盖，尚待实机验收。未验收项目详见版本说明。
 
 ## Development
 
@@ -76,7 +76,7 @@ and verification codes belong in Xcode's authentication UI, never in this
 project. `HASP_DEVELOPMENT_TEAM` may supply the Team ID instead of `--team`.
 
 Changing the signing identity requires granting permissions to the new app
-once. Public preview packages are signed separately with Developer ID. Notarization
+once. Public release packages are signed separately with Developer ID. Notarization
 status is recorded per release; a successful local build is not notarization.
 
 ## Permissions
