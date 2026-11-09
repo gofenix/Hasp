@@ -365,7 +365,9 @@ zero height, opacity and hit testing; its rows are hidden from accessibility.
 Reopening reuses the existing controls and context menus instead of constructing
 the entire list again.
 Warm refreshes do not publish a loading state, fresh snapshots skip duplicate
-scans and the periodic census only runs while the folded list is displayed.
+scans and no timer polls the census. Opening the panel reads once; afterwards
+app launch, activation, termination, space change and wake notifications are
+the only triggers, and they only scan while the bar is folded.
 
 Run the regression suite without changing real system appearance, audio routing
 or device connections. It uses an isolated preferences domain and holds fake

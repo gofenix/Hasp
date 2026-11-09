@@ -41,13 +41,25 @@ struct MenuBarVisibilityRecords {
                     "itemOwners": locations, "locationOwner": Self.owner(value["location"] as Any) ?? ""]
         }
     }
+    /// How each requested owner maps onto native switches. Callers that fold
+    /// the whole bar require a complete mapping; an app that appeared after the
+    /// fold may legitimately have no record yet, so the same resolution also
+    /// reports the parts that are merely pending or genuinely shared.
+    struct OwnerMapping {
+        var controls: Set<String> = []
+        var matched: Set<String> = []
+        var unmapped: Set<String> = []
+        var conflicts: Set<String> = []
+    }
+
     /// AX reports the process rendering an item, while Control Center may
     /// store its switch under the enclosing application. Resolve the native
     /// relationship instead of inventing an ineffective helper-app switch.
     /// Multiple records can reference the same item; all must be considered.
-    func controllingOwners(for requested: Set<String>, applicationIdentity: (String) -> String? = { _ in nil }) throws -> Set<String> {
+    func resolve(_ requested: Set<String>, applicationIdentity: (String) -> String? = { _ in nil }) -> OwnerMapping {
         let requestedItems = requested.filter(MenuBarVisibilityTransaction.mayHide)
-        guard !requestedItems.isEmpty else { return [] }
+        var mapping = OwnerMapping()
+        guard !requestedItems.isEmpty else { return mapping }
         // AX can report only the helper or only the parent. Native records may
         // retain both, including a second switch for a helper. Include aliases
         // only when installed bundle metadata proves they belong to the same
@@ -65,7 +77,7 @@ struct MenuBarVisibilityRecords {
                 }
             }
         }
-        var found = Set<String>(), controls = Set<String>()
+        var found = Set<String>()
         for i in stride(from: 0, to: rows.count, by: 2) {
             guard let owner = Self.owner(rows[i]), let value = rows[i + 1] as? [String: Any] else { continue }
             let associated = Set((value["menuItemLocations"] as? [Any] ?? []).compactMap(Self.owner))
@@ -75,13 +87,22 @@ struct MenuBarVisibilityRecords {
             // sibling just because it shares a record with a requested item.
             guard MenuBarVisibilityTransaction.mayHide(owner),
                   associated.allSatisfy({ MenuBarVisibilityTransaction.mayHide($0) && items.contains($0) }) else {
-                throw MenuBarVisibilityError.sharedOwner
+                mapping.conflicts.formUnion(matches)
+                continue
             }
             found.formUnion(matches)
-            controls.insert(owner)
+            mapping.controls.insert(owner)
         }
-        guard found == items else { throw MenuBarVisibilityError.unmappedOwner }
-        return controls
+        mapping.matched = found
+        mapping.unmapped = items.subtracting(found).subtracting(mapping.conflicts)
+        return mapping
+    }
+
+    func controllingOwners(for requested: Set<String>, applicationIdentity: (String) -> String? = { _ in nil }) throws -> Set<String> {
+        let mapping = resolve(requested, applicationIdentity: applicationIdentity)
+        guard mapping.conflicts.isEmpty else { throw MenuBarVisibilityError.sharedOwner }
+        guard mapping.unmapped.isEmpty else { throw MenuBarVisibilityError.unmappedOwner }
+        return mapping.controls
     }
     func changing(_ changes: [String: Bool]) throws -> Data {
         var next = rows
@@ -191,6 +212,54 @@ final class MenuBarVisibilityTransaction {
             do { try restore() } catch { throw MenuBarVisibilityError.rollback }
             throw failure
         }
+    }
+
+    /// Owners that a later fold can pick up, and owners whose native switch
+    /// does not exist yet because Control Center has not recorded the app.
+    struct ExtendOutcome {
+        var hidden: Set<String> = []
+        var pending: Set<String> = []
+    }
+
+    /// Fold owners that appeared after an earlier fold. Only newly owned
+    /// switches are staged and written; a failure rolls back this batch alone
+    /// and leaves the existing fold and its recovery journal intact.
+    func extend(owners: Set<String>, applicationIdentity: (String) -> String? = { _ in nil }) throws -> ExtendOutcome {
+        let records = try MenuBarVisibilityRecords(data: storage.read())
+        let originals = try storage.journal()
+        let mapping = records.resolve(owners, applicationIdentity: applicationIdentity)
+        // A record shared with an unrelated app or with Hasp cannot be split;
+        // retrying will not change that, so it stays a real failure.
+        guard mapping.conflicts.isEmpty else { throw MenuBarVisibilityError.sharedOwner }
+        // No record yet is normal for an app that just appeared: report it as
+        // pending so the caller can retry instead of undoing the whole fold.
+        guard !mapping.controls.isEmpty else { return ExtendOutcome(pending: mapping.unmapped) }
+        let states = records.states
+        // Owners already in the journal were folded by an earlier batch;
+        // writing them again would only repeat identical native values.
+        let added = mapping.controls.subtracting(originals.keys)
+        let desired = Dictionary(uniqueKeysWithValues: added.filter { states[$0] == true }.map { ($0, false) })
+        guard !desired.isEmpty else { return ExtendOutcome(pending: mapping.unmapped) }
+        var next = originals
+        for owner in desired.keys { next[owner] = true }
+        do { try storage.saveJournal(next) } catch { throw MenuBarVisibilityError.save }
+        do {
+            try storage.write(records.changing(desired))
+            let actual = try MenuBarVisibilityRecords(data: storage.read()).states
+            guard desired.allSatisfy({ actual[$0.key] == $0.value }) else { throw MenuBarVisibilityError.confirmation }
+        } catch {
+            let failure = error
+            do {
+                let current = try MenuBarVisibilityRecords(data: storage.read())
+                let undo = desired.keys.filter { current.states[$0] != true }
+                if !undo.isEmpty {
+                    try storage.write(current.changing(Dictionary(uniqueKeysWithValues: undo.map { ($0, true) })))
+                }
+                try storage.saveJournal(originals)
+            } catch { throw MenuBarVisibilityError.rollback }
+            throw failure
+        }
+        return ExtendOutcome(hidden: Set(desired.keys), pending: mapping.unmapped)
     }
 
     func restore() throws {

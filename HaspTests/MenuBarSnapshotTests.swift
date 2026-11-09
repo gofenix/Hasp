@@ -224,6 +224,105 @@ import SwiftUI
         let unfolded = MenuBarPrefs.systemIconPlaceholders(backup: nil, value: { $0 == "Battery" ? 8 : 18 })
         precondition(unfolded.count == 3 && !unfolded.contains { $0.id == "system.Battery" })
 
+        // An app that appears while folded is extended, never re-planned
+        // through the full ON batch: a missing native record for one new app
+        // would otherwise restore the whole bar.
+        var extendRequests: [(ids: [String], pending: Set<String>)] = []
+        var modernLayoutRequests = 0
+        let growing = AppModel(store: SettingsStore(defaults: defaults), menuServices: MenuBarServices(
+            snapshot: { complete }, transition: { _, done in done() },
+            extend: { icons, done in extendRequests.append((icons.map(\.id), [])); done(true, []) },
+            isTrusted: { true }, requestAccess: { preconditionFailure() }, waitsForLayout: true))
+        growing.menuBarIcons = complete
+        growing.applyMenuBarLayout = { _, done in
+            // Only the initial ON may use the full batch.
+            if modernLayoutRequests == 0 { modernLayoutRequests += 1; done(nil) }
+            else { preconditionFailure("A new icon must not re-run the full fold") }
+        }
+        growing.setMenuBarFolded(true)
+        growing.refreshMenuBarItems()
+        await wait { !growing.menuBarScanPending }
+        precondition(extendRequests.isEmpty, "An unchanged list must not extend")
+        growing.refreshMenuBarItems()
+        await wait { !growing.menuBarScanPending }
+        precondition(extendRequests.isEmpty && growing.menuBarIcons == complete)
+        // A new icon arrives with the panel closed, exactly as the bug reports.
+        let grown = complete + [MenuBarIcon(id: "newcomer", name: "Newcomer")]
+        let grownModel = AppModel(store: SettingsStore(defaults: defaults), menuServices: MenuBarServices(
+            snapshot: { grown }, transition: { _, done in done() },
+            extend: { icons, done in extendRequests.append((icons.map(\.id), [])); done(true, []) },
+            isTrusted: { true }, requestAccess: { preconditionFailure() }, waitsForLayout: true))
+        grownModel.menuBarIcons = complete
+        grownModel.setMenuBarFolded(true)
+        grownModel.refreshMenuBarItems()
+        await wait { !grownModel.menuBarScanPending }
+        await wait { !extendRequests.isEmpty }
+        precondition(extendRequests.count == 1 && extendRequests[0].ids == ["newcomer"],
+                     "Only the new icon may be extended, never the whole list")
+
+        // The panel is closed here: an app launch event alone must trigger a
+        // scan and extend, with no timer running.
+        var launchedExtends: [[String]] = []
+        var launchedReads = 0
+        let eventDriven = AppModel(store: SettingsStore(defaults: defaults), menuServices: MenuBarServices(
+            snapshot: { launchedReads += 1; return grown },
+            transition: { _, done in done() },
+            extend: { icons, done in launchedExtends.append(icons.map(\.id)); done(true, []) },
+            isTrusted: { true }, requestAccess: { preconditionFailure() }, waitsForLayout: true,
+            refreshesAfterTransition: false))
+        eventDriven.menuBarIcons = complete
+        eventDriven.applyMenuBarLayout = { _, done in done(nil) }
+        eventDriven.observeMenuBarEnvironment()
+        eventDriven.setMenuBarFolded(true)
+        eventDriven.panelDidClose()
+        let readsBeforeEvent = launchedReads
+        NSWorkspace.shared.notificationCenter.post(
+            name: NSWorkspace.didLaunchApplicationNotification, object: nil)
+        await wait { !launchedExtends.isEmpty }
+        precondition(launchedReads > readsBeforeEvent, "A launch event must trigger the census with the panel closed")
+        precondition(launchedExtends == [["newcomer"]], "The event path must extend only the new icon")
+        // Unfolding stops the reconciler: a later event must not scan.
+        await wait { !eventDriven.menuBarScanPending }
+        try! await Task.sleep(for: .milliseconds(50))
+        eventDriven.setMenuBarFolded(false)
+        let readsAfterUnfold = launchedReads
+        NSWorkspace.shared.notificationCenter.post(
+            name: NSWorkspace.didLaunchApplicationNotification, object: nil)
+        try! await Task.sleep(for: .milliseconds(700))
+        precondition(launchedReads == readsAfterUnfold, "An unfolded bar must not scan on app events")
+
+        // No event, no scan: a folded bar with no lifecycle observer cannot
+        // reach a census by itself, so any read here would be a timer.
+        var idleReads = 0
+        let idle = AppModel(store: SettingsStore(defaults: defaults), menuServices: MenuBarServices(
+            snapshot: { idleReads += 1; return complete }, transition: { _, done in done() },
+            isTrusted: { true }, requestAccess: { preconditionFailure() }, waitsForLayout: true,
+            refreshesAfterTransition: false))
+        idle.menuBarIcons = complete
+        idle.applyMenuBarLayout = { _, done in done(nil) }
+        idle.setMenuBarFolded(true)
+        await wait { !idle.menuBarScanPending }
+        try! await Task.sleep(for: .milliseconds(1500))
+        precondition(idleReads == 0, "A folded bar must not poll without an event")
+
+        // A burst of events coalesces into one census rather than one each.
+        var burstReads = 0
+        let burst = AppModel(store: SettingsStore(defaults: defaults), menuServices: MenuBarServices(
+            snapshot: { burstReads += 1; return complete }, transition: { _, done in done() },
+            isTrusted: { true }, requestAccess: { preconditionFailure() }, waitsForLayout: true,
+            refreshesAfterTransition: false))
+        burst.menuBarIcons = complete
+        burst.applyMenuBarLayout = { _, done in done(nil) }
+        burst.observeMenuBarEnvironment()
+        burst.setMenuBarFolded(true)
+        for _ in 0..<5 {
+            NSWorkspace.shared.notificationCenter.post(
+                name: NSWorkspace.didActivateApplicationNotification, object: nil)
+        }
+        await wait { burstReads > 0 }
+        try! await Task.sleep(for: .milliseconds(400))
+        precondition(burstReads == 1, "A burst of events must coalesce into one census")
+
         // Measure the real panel in an unshown window. A single overall
         // viewport now bounds all expanded content to the available height.
         func panelSize() -> NSSize {

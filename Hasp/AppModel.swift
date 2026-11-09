@@ -254,7 +254,9 @@ struct DeviceItem: Identifiable, Equatable {
     @ObservationIgnored private var bluetoothStarting = false
     @ObservationIgnored private var pairedNames: [(address: String, name: String)] = []
     @ObservationIgnored private var hardwareBatteries: [String: String] = [:]
-    @ObservationIgnored private var menuBarRefreshTimer: Timer?
+    @ObservationIgnored private var menuBarReconcileTask: Task<Void, Never>?
+    @ObservationIgnored private var menuBarReconcilePending = false
+    @ObservationIgnored private var observesMenuBarEnvironment = false
     @ObservationIgnored private var menuBarRefreshPending = false
     @ObservationIgnored private var menuBarRefreshedAt = Date.distantPast
     @ObservationIgnored private var menuBarTransitionPending = false
@@ -412,8 +414,81 @@ struct DeviceItem: Identifiable, Equatable {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            Task { @MainActor in self?.applyScheduleIfNeeded() }
+            Task { @MainActor in
+                self?.applyScheduleIfNeeded()
+                self?.scheduleMenuBarReconcile()
+            }
         }
+        // App lifecycle is the trigger for keeping a folded bar folded: a new
+        // app can add a status item at launch, on first activation, or remove
+        // it on quit. No timer runs while the bar is folded.
+        observeMenuBarEnvironment()
+    }
+
+    /// Registers the app-lifecycle sources that keep a folded bar folded.
+    /// Separate from `start()` so a test can drive them without applying
+    /// login items, Bluetooth or hardware reads.
+    func observeMenuBarEnvironment() {
+        guard !observesMenuBarEnvironment else { return }
+        observesMenuBarEnvironment = true
+        for name in [NSWorkspace.didLaunchApplicationNotification,
+                     NSWorkspace.didTerminateApplicationNotification,
+                     NSWorkspace.didActivateApplicationNotification,
+                     NSWorkspace.activeSpaceDidChangeNotification] {
+            NSWorkspace.shared.notificationCenter.addObserver(
+                forName: name, object: nil, queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor in self?.scheduleMenuBarReconcile() }
+            }
+        }
+    }
+
+    /// Coalesce a burst of app events into one census. The debounce is a
+    /// bounded confirmation after an event, not a repeating poll: it runs only
+    /// while the bar is folded and stops as soon as the scan settles.
+    private func scheduleMenuBarReconcile() {
+        guard menuBarFolded, !menuState.recoveryPending else { return }
+        menuBarReconcilePending = true
+        guard menuBarReconcileTask == nil else { return }
+        menuBarReconcileTask = Task { [weak self] in
+            var attempt = 0
+            while let self, self.menuBarReconcilePending, self.menuBarFolded {
+                self.menuBarReconcilePending = false
+                // An app registers its status item a moment after launching;
+                // retry a few times, then stop whether or not it appeared.
+                let delay = attempt == 0 ? 500 : 1500
+                try? await Task.sleep(for: .milliseconds(delay))
+                guard !Task.isCancelled, self.menuBarFolded else { break }
+                await self.reconcileMenuBarFold()
+                attempt += 1
+                if attempt >= 3 { break }
+                // Continue only when a scan asked to look again (a new icon
+                // appeared, or its native switch was not recorded yet).
+                if !self.menuBarReconcilePending { break }
+            }
+            // The attempts are exhausted or the bar is unfolded; drop a late
+            // request so the next event starts a fresh, bounded burst.
+            self?.menuBarReconcilePending = false
+            self?.menuBarReconcileTask = nil
+        }
+    }
+
+    private func cancelMenuBarReconcile() {
+        menuBarReconcilePending = false
+        menuBarReconcileTask?.cancel()
+        menuBarReconcileTask = nil
+    }
+
+    /// One event-triggered pass: read the current items, then fold only the
+    /// owners that are new. Never re-runs the full ON path, so a late or
+    /// unrecorded app cannot revert the existing fold.
+    private func reconcileMenuBarFold() async {
+        guard menuBarFolded, !menuState.layoutPending, !menuBarTransitionPending,
+              !menuBarOpening, !menuBarRevealed, !menuBarRefreshPending else { return }
+        let revision = menuBarRevision
+        menuBarRefreshPending = true
+        let icons = await menuServices.snapshot()
+        applyMenuBarSnapshot(icons, revision: revision)
     }
 
     func panelDidShow() {
@@ -422,15 +497,6 @@ struct DeviceItem: Identifiable, Equatable {
         if menuBarOpening || menuBarRevealed { setMenuBarFolded(menuBarFolded) }
         preparePanelPresentation()
         refreshMenuBarItems(force: false)
-        menuBarRefreshTimer?.invalidate()
-        menuBarRefreshTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
-            Task { @MainActor in
-                guard let self, self.menuBarFolded else { return }
-                // Preserve the status/notification polling cadence. The age
-                // gate is for repeated opens, not for this periodic refresh.
-                self.refreshMenuBarItems()
-            }
-        }
         requestHardwareRefresh(includeBattery: false)
         if CBCentralManager.authorization == .allowedAlways {
             ble.refresh()
@@ -495,8 +561,8 @@ struct DeviceItem: Identifiable, Equatable {
     func panelDidClose() {
         panelVisible = false
         scheduleMenuVisible = false
-        menuBarRefreshTimer?.invalidate()
-        menuBarRefreshTimer = nil
+        // Reconciliation is not tied to panel visibility: a folded bar keeps
+        // following app launches while the panel is closed.
     }
 
     func setMenuBarFolded(_ on: Bool) {
@@ -505,6 +571,7 @@ struct DeviceItem: Identifiable, Equatable {
         menuBarFoldRevision += 1
         menuBarInteraction?.cancel()
         menuBarInteraction = nil
+        cancelMenuBarReconcile()
         accessTimer?.invalidate()
         menuBarRevealed = false
         menuBarOpening = false
@@ -531,7 +598,7 @@ struct DeviceItem: Identifiable, Equatable {
                 guard let self, revision == self.menuBarFoldRevision else { return }
                 self.menuBarTransitionPending = false
                 // Keep complete AX handles and rows warm across a visibility
-                // toggle. Ordinary panel/timer refreshes reconcile app changes.
+                // toggle. App lifecycle events reconcile later changes.
                 if self.menuServices.refreshesAfterTransition || self.menuBarIcons.isEmpty {
                     self.refreshMenuBarItems()
                 }
@@ -607,13 +674,30 @@ struct DeviceItem: Identifiable, Equatable {
         let previousIDs = Set(menuBarIcons.map(\.id))
         latestMenuBarItems = Dictionary(uniqueKeysWithValues: icons.map { ($0.id, $0) })
         // Keep fresh AX handles without invalidating the whole glass panel
-        // every two seconds when names/status have not actually changed.
+        // on every read when names/status have not actually changed.
         if menuBarIcons != icons { menuBarIcons = icons }
         let needsAccess = menuBarFolded && !menuServices.isTrusted()
         if menuBarNeedsAccess != needsAccess { menuBarNeedsAccess = needsAccess }
-        if menuServices.waitsForLayout, menuBarFolded, !needsAccess,
-           icons.contains(where: { !$0.id.hasPrefix("system.") && !previousIDs.contains($0.id) }) {
-            requestMenuBarLayout(true, showPending: false)
+        guard menuServices.waitsForLayout, menuBarFolded, !needsAccess else { return }
+        // Icons that appeared after the fold are extended one by one. The full
+        // ON batch would re-plan every owner and, on a single unmapped app,
+        // restore the entire bar.
+        let appeared = icons.filter { !$0.id.hasPrefix("system.") && !previousIDs.contains($0.id) }
+        guard !appeared.isEmpty else { return }
+        extendMenuBarFold(appeared)
+    }
+
+    /// Fold only the apps that appeared after the last full fold. A pending
+    /// owner (Control Center has not recorded its switch yet) asks the
+    /// reconciler to look again; a failure leaves the existing fold alone.
+    private func extendMenuBarFold(_ icons: [MenuBarIcon]) {
+        let revision = menuBarFoldRevision
+        menuServices.extend(icons) { [weak self] ok, pending in
+            guard let self, revision == self.menuBarFoldRevision, self.menuBarFolded else { return }
+            // A pending owner has no native switch yet; re-arm the same
+            // event-driven loop rather than leaving it to the next launch.
+            if ok, !pending.isEmpty { self.scheduleMenuBarReconcile() }
+            self.refreshMenuBarItems(force: true)
         }
     }
 
@@ -726,7 +810,7 @@ struct DeviceItem: Identifiable, Equatable {
         menuBarTransitionPending = false
         menuBarInteraction?.cancel()
         menuBarInteraction = nil
-        menuBarRefreshTimer?.invalidate()
+        cancelMenuBarReconcile()
         accessTimer?.invalidate()
         menuBarFolded = false
         menuBarRevealed = false

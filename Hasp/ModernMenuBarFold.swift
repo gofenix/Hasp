@@ -151,6 +151,42 @@ final class ModernMenuBarFold: @unchecked Sendable {
         }
     }
 
+    /// Fold icons that appeared after the last full fold. Uses the same serial
+    /// worker so an extend cannot interleave with an ON/OFF transition, and
+    /// writes only the newly owned switches: a failure here must never undo an
+    /// existing fold. Pending owners are retried by the caller.
+    @MainActor func extend(icons: [MenuBarIcon], completion: @escaping @MainActor @Sendable (Bool, Set<String>) -> Void) {
+        queue.async { [self] in
+            var added = Set<String>()
+            var pending = Set<String>()
+            do {
+                let transaction = MenuBarVisibilityTransaction(storage: storage)
+                let candidates = icons.filter { $0.target != nil && !$0.id.hasPrefix("system.") }
+                let owners = Set(candidates.compactMap(\.target?.bundleIdentifier))
+                    .filter(MenuBarVisibilityTransaction.mayHide)
+                guard !owners.isEmpty else { DispatchQueue.main.async { completion(true, []) }; return }
+                let applications = MenuBarOwnerApplications()
+                let outcome = try transaction.extend(owners: owners, applicationIdentity: applications.identity)
+                added = outcome.hidden
+                pending = outcome.pending
+                if !added.isEmpty {
+                    cacheLock.lock()
+                    let known = Set(cachedIcons.map(\.id))
+                    cachedIcons += candidates.filter { !known.contains($0.id) }
+                    cacheLock.unlock()
+                }
+                Self.log.info("Extended fold: hidden=\(added.count, privacy: .public) pending=\(pending.count, privacy: .public)")
+            } catch {
+                // Keep the existing fold untouched; report failure without
+                // reverting anything that was already hidden.
+                Self.log.error("Extending the fold failed: reason=\(error.localizedDescription, privacy: .public)")
+                DispatchQueue.main.async { completion(false, []) }
+                return
+            }
+            DispatchQueue.main.async { completion(true, pending) }
+        }
+    }
+
     static func inspectConfiguration(itemOwners: Set<String> = []) -> [String: Any] {
         let storage = NativeMenuBarVisibilityStorage()
         let pending = (try? storage.journal().count) ?? -1

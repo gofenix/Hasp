@@ -4,6 +4,9 @@ import Foundation
 @MainActor struct MenuBarServices {
     var snapshot: () async -> [MenuBarIcon]
     var transition: (Bool, @escaping () -> Void) -> Void
+    /// Fold icons discovered after the last full fold. Reports whether the
+    /// attempt succeeded and which owners have no native switch yet.
+    var extend: ([MenuBarIcon], @escaping @MainActor @Sendable (Bool, Set<String>) -> Void) -> Void = { _, done in done(true, []) }
     var isTrusted: () -> Bool
     var requestAccess: () -> Void
     var waitsForLayout = false
@@ -25,6 +28,11 @@ import Foundation
             } else {
                 MenuBarPrefs.transition(hidden: hidden) { _ in completion() }
             }
+        }, extend: { icons, completion in
+            guard ProcessInfo.processInfo.operatingSystemVersion.majorVersion == 27 else {
+                completion(true, []); return
+            }
+            ModernMenuBarFold.shared.extend(icons: icons, completion: completion)
         }, isTrusted: { MenuBarCensus.isTrusted }, requestAccess: {
             MenuBarCensus.promptForAccess()
         }, waitsForLayout: ProcessInfo.processInfo.operatingSystemVersion.majorVersion == 27,

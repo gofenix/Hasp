@@ -186,6 +186,71 @@ final class VisibilityFixture: MenuBarVisibilityStorage {
         let inconsistent = VisibilityFixture(try pack([key("com.example.a"), ["isAllowed": false]]))
         fails({ try MenuBarVisibilityTransaction(storage: inconsistent).fold(owners: ["com.example.a"], confirm: { false }) }, .layout)
         precondition(inconsistent.writes == 0 && inconsistent.originals.isEmpty, "Disabled flags alone cannot prove hiding")
+
+        // An app that appears after the fold is extended without re-planning
+        // the owners already hidden. Folding it through the full ON path would
+        // restore the entire bar whenever its native record is missing.
+        let growRows: [Any] = [key("com.example.one"), ["isAllowed": true],
+                               key("app.hasp.menu"), ["isAllowed": true]]
+        let growing = VisibilityFixture(try pack(growRows))
+        let growingEngine = MenuBarVisibilityTransaction(storage: growing)
+        try growingEngine.fold(owners: ["com.example.one"], confirm: { true })
+        precondition(growing.states["com.example.one"] == false && growing.states["app.hasp.menu"] == true)
+        let foldWrites = growing.writes
+        // No native record yet: report pending, write nothing, keep the fold.
+        var outcome = try growingEngine.extend(owners: ["com.example.two"])
+        precondition(outcome.hidden.isEmpty && outcome.pending == ["com.example.two"])
+        precondition(growing.writes == foldWrites && growing.states["com.example.one"] == false)
+        // Once Control Center records the app, the same call folds it alone.
+        growing.data = try MenuBarVisibilityRecords(data: growing.data).changing(["com.example.two": true])
+        outcome = try growingEngine.extend(owners: ["com.example.two"])
+        precondition(outcome.hidden == ["com.example.two"] && outcome.pending.isEmpty)
+        precondition(growing.states["com.example.two"] == false && growing.states["com.example.one"] == false)
+        precondition(growing.states["app.hasp.menu"] == true, "Extending must not touch protected rows")
+        precondition(growing.originals == ["com.example.one": true, "com.example.two": true])
+        // A repeat extend of an already folded owner is a no-op.
+        let extendedWrites = growing.writes
+        outcome = try growingEngine.extend(owners: ["com.example.two"])
+        precondition(outcome.hidden.isEmpty && growing.writes == extendedWrites)
+        // Restore returns every owner the journal recorded, including the
+        // owners added by an extend.
+        try MenuBarVisibilityTransaction(storage: growing).restore()
+        precondition(growing.states["com.example.one"] == true && growing.states["com.example.two"] == true)
+        precondition(growing.states["app.hasp.menu"] == true && growing.originals.isEmpty)
+        // A shared record stays a hard failure: retrying cannot split it, and
+        // the existing fold must survive untouched.
+        let extensionTarget = VisibilityFixture(try pack([key("com.example.a"), ["isAllowed": true]]))
+        let extensionEngine = MenuBarVisibilityTransaction(storage: extensionTarget)
+        try extensionEngine.fold(owners: ["com.example.a"], confirm: { true })
+        // Control Center later writes one switch that also covers a new app.
+        extensionTarget.data = try pack([key("com.example.a"), ["isAllowed": false],
+                                         key("com.example.parent"), ["isAllowed": true,
+                                             "menuItemLocations": [key("com.example.a"), key("com.example.b")]],
+                                         key("com.example.b"), ["isAllowed": true]])
+        let sharedBefore = extensionTarget.writes
+        fails({ _ = try extensionEngine.extend(owners: ["com.example.b"]) }, .sharedOwner)
+        precondition(extensionTarget.writes == sharedBefore && extensionTarget.states["com.example.a"] == false,
+                     "A rejected extend must not write or undo the existing fold")
+        // A failing write during extend rolls back only the new owner.
+        let failingRows: [Any] = [key("com.example.kept"), ["isAllowed": true],
+                                  key("com.example.added"), ["isAllowed": true]]
+        let failing = VisibilityFixture(try pack(failingRows))
+        let failingEngine = MenuBarVisibilityTransaction(storage: failing)
+        try failingEngine.fold(owners: ["com.example.kept"], confirm: { true })
+        let keptJournal = failing.originals
+        failing.writeFailures = 1
+        fails({ _ = try failingEngine.extend(owners: ["com.example.added"]) }, .command)
+        precondition(failing.states["com.example.kept"] == false, "An extend failure must not restore the earlier fold")
+        precondition(failing.states["com.example.added"] == true)
+        precondition(failing.originals == keptJournal, "The recovery journal must return to the earlier fold")
+        precondition(try! MenuBarVisibilityRecords(data: failing.data).resolve(["com.example.added"]).matched == ["com.example.added"],
+                     "A failed write must leave the native record readable for the retry")
+        failing.writeFailures = 0
+        _ = try failingEngine.extend(owners: ["com.example.added"])
+        precondition(failing.states["com.example.added"] == false)
+        try failingEngine.restore()
+        precondition(failing.states["com.example.kept"] == true && failing.states["com.example.added"] == true)
+
         // Exercise the real defaults transport only in an isolated task-local
         // domain. Importing one key must merge rather than clear other keys.
         let transportFolder = URL(fileURLWithPath: CommandLine.arguments.dropFirst().first ?? "verification/menu-visibility-transport", isDirectory: true)

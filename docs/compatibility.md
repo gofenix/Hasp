@@ -82,8 +82,12 @@ unrequested siblings fail before a journal or native setting is changed.
 - Run native preference commands and AX verification on one worker, with bounded
   command execution. No keyboard/mouse simulation, app activation, TCC database
   modification, global spacing changes or menu-bar agent restart is involved.
-- Retain a complete warm icon inventory across ON/OFF. Regular panel/timer
-  refreshes reconcile running-app changes; a cold inventory is still populated.
+- Retain a complete warm icon inventory across ON/OFF. App launch, activation,
+  termination, space change and wake notifications reconcile running-app
+  changes; a cold inventory is still populated. No timer polls the census.
+  An icon discovered after a fold is folded through an incremental transaction
+  that stages only the new owners, so an app whose native switch is not
+  recorded yet stays pending instead of restoring the whole bar.
   Avoid making every visibility toggle await another all-app AX enumeration.
   Per-attempt timings distinguish prepare, submission, readback and actual
   combined visual confirmation. The verifier reads immediately, then samples
