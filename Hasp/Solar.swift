@@ -49,10 +49,54 @@ enum Solar {
     }
 
     static func isSolarDark(at date: Date, latitude: Double, longitude: Double, timeZone: TimeZone) -> Bool {
-        guard let events = sunriseSunset(on: date, latitude: latitude, longitude: longitude, timeZone: timeZone) else {
-            return false
+        if let events = sunriseSunset(on: date, latitude: latitude, longitude: longitude, timeZone: timeZone) {
+            if events.sunrise <= events.sunset {
+                return date < events.sunrise || date >= events.sunset
+            } else {
+                return date >= events.sunset && date < events.sunrise
+            }
         }
-        return date < events.sunrise || date >= events.sunset
+        return isPolarNight(on: date, latitude: latitude, longitude: longitude, timeZone: timeZone)
+    }
+
+    /// Evaluates the cosine of the local hour angle at solar noon to identify polar day/night.
+    private static func solarNoonCosHour(on date: Date, latitude: Double, longitude: Double, timeZone: TimeZone) -> Double? {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = timeZone
+        let parts = calendar.dateComponents([.year, .month, .day], from: date)
+        guard let year = parts.year, let month = parts.month, let day = parts.day,
+              let midnight = calendar.date(from: DateComponents(year: year, month: month, day: day))
+        else { return nil }
+
+        let dayOfYear = Double(calendar.ordinality(of: .day, in: .year, for: midnight) ?? day)
+        let lngHour = longitude / 15
+        let zenith = 90.833
+        let approximate = dayOfYear + ((12 - lngHour) / 24)
+        let meanAnomaly = (0.9856 * approximate) - 3.289
+        var trueLongitude = meanAnomaly
+            + (1.916 * sin(degrees: meanAnomaly))
+            + (0.020 * sin(degrees: 2 * meanAnomaly))
+            + 282.634
+        trueLongitude = wrap(trueLongitude, by: 360)
+
+        let sinDec = 0.39782 * sin(degrees: trueLongitude)
+        let cosDec = cos(asin(sinDec))
+        let latitudeRadians = latitude.degreesToRadians
+        let denominator = cosDec * cos(latitudeRadians)
+        if denominator == 0 { return nil }
+        return (cos(degrees: zenith) - (sinDec * sin(latitudeRadians))) / denominator
+    }
+
+    /// Returns true if the sun remains below the horizon (-0.833°) for the entire day (polar night).
+    static func isPolarNight(on date: Date, latitude: Double, longitude: Double, timeZone: TimeZone) -> Bool {
+        guard let cosHour = solarNoonCosHour(on: date, latitude: latitude, longitude: longitude, timeZone: timeZone) else { return false }
+        return cosHour > 1
+    }
+
+    /// Returns true if the sun remains above the horizon (-0.833°) for the entire day (polar day / midnight sun).
+    static func isPolarDay(on date: Date, latitude: Double, longitude: Double, timeZone: TimeZone) -> Bool {
+        guard let cosHour = solarNoonCosHour(on: date, latitude: latitude, longitude: longitude, timeZone: timeZone) else { return false }
+        return cosHour < -1
     }
 
     /// NOAA sunrise/sunset. Returns nil when the sun does not cross the horizon.
