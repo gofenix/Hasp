@@ -1,8 +1,9 @@
 import { useRef, useState } from "react";
 
 const repository = "https://github.com/gofenix/Hasp";
-const release = `${repository}/releases/tag/v0.1.0`;
-const download = `${repository}/releases/download/v0.1.0/Hasp-0.1.0-universal.zip`;
+const version = "0.1.1-preview.1";
+const release = `${repository}/releases/tag/v${version}`;
+const download = `${repository}/releases/download/v${version}/Hasp-${version}-universal.zip`;
 const asset = (name) => `/assets/${name}`;
 const demos = [
   { id: "overview", label: "面板总览", title: "声音、设备、外观，一眼看清。", description: "查看当前声音输出、设备连接和电量，或切换深浅外观。", alt: "Hasp 浅色面板，展示外观、声音输出和键盘鼠标电量" },
@@ -10,8 +11,8 @@ const demos = [
   { id: "appearance", label: "自动外观", title: "白天浅色，入夜深色。", description: "按设定时间或当地日出日落，自动切换深浅外观。", alt: "Hasp 深色面板，外观选择自动模式" },
   { id: "fold", label: "菜单栏折叠", title: "常用的留下，其余收起。", description: "收起不常用的菜单栏图标，需要时再打开原生菜单。", alt: "Hasp 折叠面板，列出 Wi-Fi、声音和电池状态项" },
 ];
-function DownloadLink({ children = "下载 Mac 版", className = "button primary" }) {
-  return <a className={className} href={download}>{children}</a>;
+function DownloadLink({ className = "button primary" }) {
+  return <a className={className} href={download}>下载 Mac 预览版</a>;
 }
 export function App() {
   const [active, setActive] = useState(0);
@@ -33,7 +34,7 @@ export function App() {
       <a className="nav-brand" href="#" aria-label="Hasp 首页"><img src={asset("hasp-icon.png")} width="30" height="30" alt="" /><span>Hasp</span></a>
       <button className="menu-toggle" type="button" aria-expanded={menuOpen} aria-controls="nav-links" onClick={() => setMenuOpen(!menuOpen)}>{menuOpen ? "收起" : "菜单"}</button>
       <nav id="nav-links" aria-label="主导航" className={menuOpen ? "nav-links open" : "nav-links"} onClick={() => setMenuOpen(false)}><a href="#features">功能</a><a href="#start">安装使用</a><a href={release}>更新日志</a><a href={repository}>GitHub</a></nav>
-      <DownloadLink className="nav-download">下载 Mac 版</DownloadLink>
+      <DownloadLink className="nav-download" />
     </header>
     <main id="main" className="page">
       <section className="hero" aria-labelledby="hero-title">
@@ -41,7 +42,7 @@ export function App() {
         <h1 id="hero-title">常用控制，收进菜单栏。</h1>
         <p className="hero-description">切换耳机，查看设备电量，调整深浅外观。<br className="desktop-break" />蓝牙连接和菜单栏整理，也在这里。</p>
         <div className="hero-actions"><DownloadLink /><a className="button secondary" href={repository}>GitHub</a></div>
-        <p className="compatibility">macOS 26.0 及以上<span>·</span>Apple Silicon 与 Intel<span>·</span>v0.1.0</p>
+        <p className="compatibility">macOS 26.0 及以上<span>·</span>Apple Silicon 与 Intel<span>·</span>v{version}</p>
       </section>
       <section id="demo" className="showcase" aria-label="Hasp 功能预览">
         <div className={`desktop-stage stage-${demo.id}`} role="tabpanel" id="demo-panel" aria-labelledby={`tab-${demo.id}`} tabIndex="0">
@@ -82,7 +83,7 @@ export function App() {
           <details><summary>在哪里下载和反馈问题？</summary><p>安装包和版本说明均可在 <a href={release}>GitHub Release</a> 查看。遇到问题可以到 <a href={`${repository}/issues`}>Issues</a> 反馈。附上诊断信息前，请先去除设备名等私人信息。</p></details>
         </div>
       </section>
-      <section className="closing section"><img src={asset("hasp-icon.png")} width="64" height="64" alt="" /><h2>给 Mac，加个 Hasp。</h2><p>耳机连接、外观切换、菜单栏整理，点开就能操作。</p><DownloadLink /><a className="release-link" href={release}>v0.1.0 · 查看更新</a></section>
+      <section className="closing section"><img src={asset("hasp-icon.png")} width="64" height="64" alt="" /><h2>给 Mac，加个 Hasp。</h2><p>耳机连接、外观切换、菜单栏整理，点开就能操作。</p><DownloadLink /><a className="release-link" href={release}>v{version} · 查看更新</a></section>
     </main>
     <footer className="footer"><div className="footer-brand"><span>Hasp</span><p>原生 Mac 菜单栏工具。</p></div><div className="footer-links"><a href={repository}>GitHub</a><a href={release}>版本记录</a><a href="https://kami.tw93.fun/index-zh.html">Design with Kami</a></div></footer>
   </>;

@@ -16,8 +16,8 @@ The Vite build emits a standalone static site in `dist/client` plus the
 preserved optional Sites worker wrapper. No analytics, API keys, accounts or
 backend are required. The website is not automatically deployed by a push.
 
-Download links are pinned to GitHub Release `v0.1.0`. Update the
-version and asset filename together in `src/App.jsx` for the next release.
+Download links are pinned to GitHub prerelease `v0.1.1-preview.1`. Update
+the version in `src/App.jsx` and match the uploaded asset filename for the next release.
 Do not advertise signing, notarization or system verification that the actual
 release package has not passed.
 
